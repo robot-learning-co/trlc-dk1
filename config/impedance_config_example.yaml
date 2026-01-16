@@ -1,0 +1,37 @@
+# Example impedance configuration for DK1 Impedance Follower
+#
+# Joint stiffness (kp) is in Nm/rad
+# Damping (kd) is computed automatically: kd = damping_ratio * sqrt(kp)
+#
+# damping_ratio = 1.0 -> critical damping (no oscillation, fastest settling)
+# damping_ratio < 1.0 -> underdamped (faster but may oscillate)
+# damping_ratio > 1.0 -> overdamped (slower, guaranteed no oscillation)
+#
+# Motor limits (for reference):
+#   - DM4340 (joints 1-3): kp_max=500, kd_max=5, tau_max=28 Nm
+#   - DM4310 (joints 4-6): kp_max=500, kd_max=5, tau_max=10 Nm
+
+joints:
+  joint_1:  # DM4340 - shoulder rotation (vertical axis)
+    kp: 80.0
+    damping_ratio: 1.0
+
+  joint_2:  # DM4340 - shoulder pitch (carries full arm weight)
+    kp: 100.0
+    damping_ratio: 1.0
+
+  joint_3:  # DM4340 - elbow
+    kp: 60.0
+    damping_ratio: 1.0
+
+  joint_4:  # DM4310 - wrist roll
+    kp: 25.0
+    damping_ratio: 1.0
+
+  joint_5:  # DM4310 - wrist pitch
+    kp: 20.0
+    damping_ratio: 1.0
+
+  joint_6:  # DM4310 - wrist rotation (end effector)
+    kp: 15.0
+    damping_ratio: 1.0

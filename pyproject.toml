@@ -10,6 +10,8 @@ dependencies = [
   "pyserial>=3.5",
   "dynamixel-sdk>=3.7.31",
   "lerobot@git+https://github.com/robot-learning-co/lerobot.git@trlc-dk1",
+  "pin",
+  "pyyaml>=6.0",
 ]
 
 authors = [
