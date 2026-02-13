@@ -46,12 +46,12 @@ class DK1Leader(Teleoperator):
         self.bus = DynamixelMotorsBus(
             port=self.config.port,
             motors={
-                "joint_1": Motor(1, "xl330-m288", MotorNormMode.DEGREES),
-                "joint_2": Motor(2, "xl330-m288", MotorNormMode.DEGREES),
+                "joint_1": Motor(1, "xl330-m077", MotorNormMode.DEGREES),
+                "joint_2": Motor(2, "xl330-m077", MotorNormMode.DEGREES),
                 "joint_3": Motor(3, "xl330-m077", MotorNormMode.DEGREES),
                 "joint_4": Motor(4, "xl330-m077", MotorNormMode.DEGREES),
-                "joint_5": Motor(5, "xl330-m288", MotorNormMode.DEGREES),
-                "joint_6": Motor(6, "xl330-m288", MotorNormMode.DEGREES),
+                "joint_5": Motor(5, "xl330-m077", MotorNormMode.DEGREES),
+                "joint_6": Motor(6, "xl330-m077", MotorNormMode.DEGREES),
                 "gripper": Motor(7, "xl330-m077", MotorNormMode.DEGREES),
             },
         )

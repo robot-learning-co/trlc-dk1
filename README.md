@@ -47,8 +47,19 @@ Copyright 2025-2026 The Robot Learning Company UG (haftungsbeschränkt). All rig
 git clone https://github.com/robot-learning-co/trlc-dk1.git
 uv venv
 uv pip install -e .
+uv pip install pyrealsense2
 ```
 This repo uses [LeRobot's plugin conventions](https://huggingface.co/docs/lerobot/integrate_hardware#using-your-own-lerobot-devices-) to be automatically detected by a LeRobot installation in the same Python environment.
+
+### Permissions
+
+To access USB cameras and serial ports (robot arms), your user must be in the `video` and `dialout` groups:
+
+```
+sudo usermod -aG video,dialout $(whoami)
+```
+
+Log out and log back in for the change to take effect.
 
 
 ## Examples
