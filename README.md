@@ -70,6 +70,7 @@ Use [LeRobot's CLI](https://huggingface.co/docs/lerobot/il_robots) to identify y
 uv run lerobot-find-port
 uv run lerobot-find-cameras
 ```
+The port values in the examples below correspond to the autonomy-eagle setup in Aera41 (don't change the plug setup there). 
 
 <details>
 <summary>Example I: Single Arm Teleoperation
@@ -80,6 +81,7 @@ uv run lerobot-teleoperate \
     --robot.type=dk1_follower \
     --robot.port=/dev/ttyACM0 \
     --robot.joint_velocity_scaling=0.2 \
+    --robot.disable_torque_on_disconnect=true \
     --teleop.type=dk1_leader \
     --teleop.port=/dev/ttyACM1 \
     --robot.cameras="{ 
@@ -100,6 +102,7 @@ uv run lerobot-teleoperate \
     --robot.right_arm_port=/dev/ttyACM3 \
     --robot.left_arm_port=/dev/ttyACM2 \
     --robot.joint_velocity_scaling=0.2 \
+    --robot.disable_torque_on_disconnect=true \
     --teleop.type=bi_dk1_leader \
     --teleop.right_arm_port=/dev/ttyACM1 \
     --teleop.left_arm_port=/dev/ttyACM0 \
@@ -121,6 +124,7 @@ uv run lerobot-record \
     --robot.right_arm_port=/dev/ttyACM3 \
     --robot.left_arm_port=/dev/ttyACM2 \
     --robot.joint_velocity_scaling=1.0 \
+    --robot.disable_torque_on_disconnect=true \
     --teleop.type=bi_dk1_leader \
     --teleop.right_arm_port=/dev/ttyACM1 \
     --teleop.left_arm_port=/dev/ttyACM0 \

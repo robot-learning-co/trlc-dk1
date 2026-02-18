@@ -1,0 +1,41 @@
+# Impedance configuration for DK1 Impedance Follower
+#
+# Joint stiffness (kp) is in Nm/rad
+# Damping (kd) is computed automatically: kd = damping_ratio * sqrt(kp)
+#
+# Note: MIT mode hard-limits kd_max=5.0 Nm*s/rad. Since kd = damping_ratio * sqrt(kp),
+# the formula only gives true critical damping for kp <= 25 (kd = sqrt(25) = 5.0).
+# For kp > 25 the kd value is silently clamped to 5.0, making the system underdamped:
+#
+#   kp=25  -> kd=5.0  (critical, effective damping_ratio=1.0)
+#   kp=30  -> kd=5.48 -> clamped to 5.0 (effective damping_ratio=0.91)
+#   kp=50  -> kd=7.07 -> clamped to 5.0 (effective damping_ratio=0.71)
+#
+# Motor limits (for reference):
+#   - DM4340 (joints 1-3): kp_max=500, kd_max=5, tau_max=28 Nm
+#   - DM4310 (joints 4-6): kp_max=500, kd_max=5, tau_max=10 Nm
+
+joints:
+  joint_1:  # DM4340 - shoulder rotation (low gravity load)
+    kp: 25.0        # kd = sqrt(25) = 5.0 -> exactly at MIT limit, critical damping
+    damping_ratio: 1.0
+
+  joint_2:  # DM4340 - shoulder pitch (highest gravity load, ~10-15 Nm)
+    kp: 50.0        # kd clamped to 5.0 (underdamped); gravity comp handles static load
+    damping_ratio: 1.0
+
+  joint_3:  # DM4340 - elbow
+    kp: 30.0        # kd = sqrt(30) = 5.48 -> clamped to 5.0, near critical
+    damping_ratio: 1.0
+
+  joint_4:  # DM4310 - wrist roll (light load)
+    kp: 15.0        # kd = sqrt(15) = 3.87 -> under limit, well-damped
+    damping_ratio: 1.0
+
+  joint_5:  # DM4310 - wrist pitch
+    kp: 15.0        # kd = sqrt(15) = 3.87 -> under limit, well-damped
+    damping_ratio: 1.0
+
+  joint_6:  # DM4310 - wrist rotation (end effector)
+    kp: 10.0        # kd = sqrt(10) = 3.16 -> well under limit
+    damping_ratio: 1.0

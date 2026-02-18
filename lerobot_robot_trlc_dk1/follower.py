@@ -14,10 +14,15 @@
 
 from dataclasses import dataclass, field
 from functools import cached_property
+from pathlib import Path
 import serial
 import time
 import logging
 from typing import Any
+
+import numpy as np
+import pinocchio as pin
+import yaml
 
 from lerobot.cameras import CameraConfig
 from lerobot.cameras.utils import make_cameras_from_configs
@@ -34,37 +39,84 @@ def map_range(x: float, in_min: float, in_max: float, out_min: float, out_max: f
     return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
 
 
+@dataclass
+class JointImpedanceParams:
+    """Impedance parameters for a single joint."""
+    kp: float  # Stiffness (Nm/rad)
+    damping_ratio: float = 1.0  # Critical damping = 1.0
+
+    @property
+    def kd(self) -> float:
+        """Compute damping: kd = damping_ratio * sqrt(kp)."""
+        return self.damping_ratio * np.sqrt(self.kp)
+
+
 @RobotConfig.register_subclass("dk1_follower")
 @dataclass
 class DK1FollowerConfig(RobotConfig):
     port: str
+    controller_type: str = "pos_vel"  # "pos_vel" | "joint_impedance"
     disable_torque_on_disconnect: bool = False
+
+    # POS_VEL controller parameters
     joint_velocity_scaling: float = 0.2
-    max_gripper_torque: float = 1.0 # Nm (/0.00875m spur gear radius = 114N gripper force)
+
+    # Joint impedance controller parameters (only used when controller_type="joint_impedance")
+    urdf_path: str | None = None
+    impedance_config_path: str | None = None  # Path to per-joint YAML config
+    default_kp_large: float = 50.0            # Default kp for DM4340 (joints 1-3)
+    default_kp_small: float = 20.0            # Default kp for DM4310 (joints 4-6)
+    damping_ratio: float = 1.0               # Global damping ratio (kd = ratio * sqrt(kp))
+
+    # Shared parameters
+    max_gripper_torque: float = 1.0  # Nm (/0.00875m spur gear radius = 114N gripper force)
     cameras: dict[str, CameraConfig] = field(default_factory=dict)
 
 
 class DK1Follower(Robot):
     """
     TRLC-DK1 Follower Arm designed by The Robot Learning Company.
+
+    Supports two control modes via the ``controller_type`` config field:
+
+    - ``"pos_vel"`` (default): position + velocity control handled by motor firmware.
+    - ``"joint_impedance"``: MIT mode with explicit per-cycle PD gains and gravity
+      compensation feedforward computed from a Pinocchio URDF model.
+
+      Control law (executed at motor driver level):
+          tau = kp * (q_des - q) + kd * (dq_des - dq) + tau_gravity
     """
 
     config_class = DK1FollowerConfig
     name = "dk1_follower"
 
+    # Motor torque limits (Nm) — used by impedance mode
+    TORQUE_LIMITS = {
+        "joint_1": 28.0,  # DM4340
+        "joint_2": 28.0,
+        "joint_3": 28.0,
+        "joint_4": 10.0,  # DM4310
+        "joint_5": 10.0,
+        "joint_6": 10.0,
+    }
+
+    # MIT mode parameter limits (from DM_CAN.py) — used by impedance mode
+    MIT_KP_MAX = 500.0
+    MIT_KD_MAX = 5.0
+
     def __init__(self, config: DK1FollowerConfig):
         super().__init__(config)
-        
+
         # Constants for EMIT control
         self.DM4310_TORQUE_CONSTANT = 0.945  # Nm/A
         self.EMIT_VELOCITY_SCALE = 100  # rad/s
         self.EMIT_CURRENT_SCALE = 1000  # A
-        
+
         self.JOINT_LIMITS = {
             "joint_4": (-100/180*np.pi, 100/180*np.pi),
             "joint_5": (-90/180*np.pi, 90/180*np.pi),
         }
-        
+
         self.DM4310_SPEED = 200/60*2*np.pi   # rad/s (200  rpm | 20.94 rad/s)
         self.DM4340_SPEED = 52.5/60*2*np.pi  # rad/s (52.5 rpm | 5.49  rad/s)
 
@@ -78,6 +130,8 @@ class DK1Follower(Robot):
             "joint_6": Motor(DM_Motor_Type.DM4310, 0x06, 0x16),
             "gripper": Motor(DM_Motor_Type.DM4310, 0x07, 0x17),
         }
+        self.joint_names = ["joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6"]
+
         self.control = None
         self.serial_device = None
         self.bus_connected = False
@@ -85,7 +139,87 @@ class DK1Follower(Robot):
         self.gripper_open_pos = 0.0
         self.gripper_closed_pos = -4.7
 
+        # Pinocchio model — loaded on connect() when controller_type="joint_impedance"
+        self.pin_model = None
+        self.pin_data = None
+
+        # Per-joint impedance parameters — populated when controller_type="joint_impedance"
+        self.params: dict[str, JointImpedanceParams] = {}
+        if config.controller_type == "joint_impedance":
+            self.params = self._load_impedance_config()
+
         self.cameras = make_cameras_from_configs(config.cameras)
+
+    # ------------------------------------------------------------------
+    # Impedance helpers
+    # ------------------------------------------------------------------
+
+    def _load_impedance_config(self) -> dict[str, JointImpedanceParams]:
+        """Load per-joint impedance parameters from YAML or fall back to defaults."""
+        params: dict[str, JointImpedanceParams] = {}
+
+        if self.config.impedance_config_path:
+            yaml_path = Path(self.config.impedance_config_path)
+            if yaml_path.exists():
+                with open(yaml_path, "r") as f:
+                    yaml_config = yaml.safe_load(f)
+
+                for joint_name in self.joint_names:
+                    if joint_name in yaml_config.get("joints", {}):
+                        joint_cfg = yaml_config["joints"][joint_name]
+                        params[joint_name] = JointImpedanceParams(
+                            kp=joint_cfg.get("kp", self.config.default_kp_large),
+                            damping_ratio=joint_cfg.get("damping_ratio", self.config.damping_ratio),
+                        )
+
+                logger.info(f"Loaded impedance config from {yaml_path}")
+
+        # Fill in defaults for any joints not covered by the YAML
+        for joint_name in self.joint_names:
+            if joint_name not in params:
+                kp = (
+                    self.config.default_kp_large
+                    if joint_name in ("joint_1", "joint_2", "joint_3")
+                    else self.config.default_kp_small
+                )
+                params[joint_name] = JointImpedanceParams(
+                    kp=kp,
+                    damping_ratio=self.config.damping_ratio,
+                )
+
+        for joint_name, p in params.items():
+            logger.info(f"{joint_name}: kp={p.kp:.1f}, kd={p.kd:.2f}")
+
+        return params
+
+    def _load_pinocchio_model(self) -> None:
+        """Load URDF into a Pinocchio model."""
+        urdf_path = Path(self.config.urdf_path)
+        if not urdf_path.exists():
+            raise FileNotFoundError(f"URDF file not found: {urdf_path}")
+
+        self.pin_model = pin.buildModelFromUrdf(str(urdf_path))
+        self.pin_data = self.pin_model.createData()
+
+        logger.info(f"Loaded Pinocchio model from {urdf_path}")
+        logger.info(f"Model has {self.pin_model.nq} DOF")
+
+    def compute_gravity_compensation(self, q: np.ndarray) -> np.ndarray:
+        """
+        Compute gravity compensation torques using Pinocchio.
+
+        Args:
+            q: Joint positions array matching the Pinocchio model DOF.
+
+        Returns:
+            Gravity compensation torques (Nm).
+        """
+        pin.computeGeneralizedGravity(self.pin_model, self.pin_data, q)
+        return self.pin_data.g.copy()
+
+    # ------------------------------------------------------------------
+    # LeRobot Robot interface
+    # ------------------------------------------------------------------
 
     @property
     def _motors_ft(self) -> dict[str, type]:
@@ -113,8 +247,10 @@ class DK1Follower(Robot):
         if self.is_connected:
             raise DeviceAlreadyConnectedError(f"{self} already connected")
 
-        self.serial_device = serial.Serial(
-            self.config.port, 921600, timeout=0.5)
+        if self.config.controller_type == "joint_impedance":
+            self._load_pinocchio_model()
+
+        self.serial_device = serial.Serial(self.config.port, 921600, timeout=0.5)
         time.sleep(0.5)
 
         self.control = MotorControl(self.serial_device)
@@ -132,7 +268,6 @@ class DK1Follower(Robot):
         pass
 
     def configure(self) -> None:
-
         for key, motor in self.motors.items():
             self.control.addMotor(motor)
 
@@ -143,25 +278,29 @@ class DK1Follower(Robot):
             if self.control.read_motor_param(motor, DM_variable.CTRL_MODE) is not None:
                 print(f"{key} ({motor.MotorType.name}) is connected.")
 
-                self.control.switchControlMode(motor, Control_Type.POS_VEL)
+                if key == "gripper":
+                    self.control.switchControlMode(motor, Control_Type.Torque_Pos)
+                elif self.config.controller_type == "joint_impedance":
+                    self.control.switchControlMode(motor, Control_Type.MIT)
+                else:
+                    self.control.switchControlMode(motor, Control_Type.POS_VEL)
+
                 self.control.enable(motor)
             else:
-                raise Exception(
-                    f"Unable to read from {key} ({motor.MotorType.name}).")
+                raise Exception(f"Unable to read from {key} ({motor.MotorType.name}).")
 
-        for joint in ["joint_1", "joint_2", "joint_3"]:
-            self.control.change_motor_param(self.motors[joint], DM_variable.ACC, 10.0)
-            self.control.change_motor_param(self.motors[joint], DM_variable.DEC, -10.0)
-            self.control.change_motor_param(self.motors[joint], DM_variable.KP_APR, 200)
-            self.control.change_motor_param(self.motors[joint], DM_variable.KI_APR, 10)
+        # POS_VEL-only: write firmware tuning parameters
+        if self.config.controller_type == "pos_vel":
+            for joint in ["joint_1", "joint_2", "joint_3"]:
+                self.control.change_motor_param(self.motors[joint], DM_variable.ACC, 10.0)
+                self.control.change_motor_param(self.motors[joint], DM_variable.DEC, -10.0)
+                self.control.change_motor_param(self.motors[joint], DM_variable.KP_APR, 200)
+                self.control.change_motor_param(self.motors[joint], DM_variable.KI_APR, 10)
 
-        for joint in ["gripper"]:
-            self.control.change_motor_param(
-                self.motors[joint], DM_variable.KP_APR, 100)
+            self.control.change_motor_param(self.motors["gripper"], DM_variable.KP_APR, 100)
 
-        # Open gripper and set zero position
-        self.control.switchControlMode(
-            self.motors["gripper"], Control_Type.VEL)
+        # Open gripper and set zero position (shared by both modes)
+        self.control.switchControlMode(self.motors["gripper"], Control_Type.VEL)
         self.control.control_Vel(self.motors["gripper"], 10.0)
         while True:
             self.control.refresh_motor_status(self.motors["gripper"])
@@ -174,8 +313,7 @@ class DK1Follower(Robot):
                 self.control.enable(self.motors["gripper"])
                 break
             time.sleep(0.01)
-        self.control.switchControlMode(
-            self.motors["gripper"], Control_Type.Torque_Pos)
+        self.control.switchControlMode(self.motors["gripper"], Control_Type.Torque_Pos)
 
     def get_observation(self) -> dict[str, Any]:
         if not self.is_connected:
@@ -210,22 +348,82 @@ class DK1Follower(Robot):
         if not self.is_connected:
             raise DeviceNotConnectedError(f"{self} is not connected.")
 
-        goal_pos = {key.removesuffix(
-            ".pos"): val for key, val in action.items() if key.endswith(".pos")}
+        goal_pos = {key.removesuffix(".pos"): val for key, val in action.items() if key.endswith(".pos")}
 
-        # Send goal position to the arm
+        if self.config.controller_type == "joint_impedance":
+            return self._send_action_impedance(goal_pos)
+        else:
+            return self._send_action_pos_vel(goal_pos)
+
+    def _send_action_pos_vel(self, goal_pos: dict[str, float]) -> dict[str, Any]:
+        """Send position+velocity commands (POS_VEL firmware mode)."""
         for key, motor in self.motors.items():
             if key == "gripper":
                 self.control.refresh_motor_status(motor)
-                gripper_goal_pos_mapped = map_range(goal_pos[key], 0.0, 1.0, self.gripper_open_pos, self.gripper_closed_pos)
-                self.control.control_pos_force(motor, gripper_goal_pos_mapped, self.DM4310_SPEED*self.EMIT_VELOCITY_SCALE,
-                                               i_des=self.config.max_gripper_torque/self.DM4310_TORQUE_CONSTANT*self.EMIT_CURRENT_SCALE)
+                gripper_goal_pos_mapped = map_range(
+                    goal_pos[key], 0.0, 1.0, self.gripper_open_pos, self.gripper_closed_pos)
+                self.control.control_pos_force(
+                    motor, gripper_goal_pos_mapped,
+                    self.DM4310_SPEED * self.EMIT_VELOCITY_SCALE,
+                    i_des=self.config.max_gripper_torque / self.DM4310_TORQUE_CONSTANT * self.EMIT_CURRENT_SCALE)
             else:
                 if key in self.JOINT_LIMITS:
                     goal_pos[key] = np.clip(goal_pos[key], self.JOINT_LIMITS[key][0], self.JOINT_LIMITS[key][1])
 
                 self.control.control_Pos_Vel(
-                    motor, goal_pos[key], self.config.joint_velocity_scaling*self.DM4340_SPEED)
+                    motor, goal_pos[key], self.config.joint_velocity_scaling * self.DM4340_SPEED)
+
+        return {f"{motor}.pos": val for motor, val in goal_pos.items()}
+
+    def _send_action_impedance(self, goal_pos: dict[str, float]) -> dict[str, Any]:
+        """
+        Send MIT impedance commands with gravity compensation feedforward.
+
+        Control law (at motor driver level):
+            tau = kp * (q_des - q) + kd * (dq_des - dq) + tau_gravity
+        """
+        # Read current arm positions for gravity computation
+        q_current = np.zeros(self.pin_model.nq)
+        for i, joint_name in enumerate(self.joint_names):
+            self.control.refresh_motor_status(self.motors[joint_name])
+            if i < self.pin_model.nq:
+                q_current[i] = self.motors[joint_name].getPosition()
+
+        tau_gravity = self.compute_gravity_compensation(q_current)
+
+        # Send MIT commands to arm joints
+        for i, joint_name in enumerate(self.joint_names):
+            motor = self.motors[joint_name]
+            imp = self.params[joint_name]
+
+            q_des = goal_pos.get(joint_name, motor.getPosition())
+
+            if joint_name in self.JOINT_LIMITS:
+                q_des = np.clip(q_des, self.JOINT_LIMITS[joint_name][0], self.JOINT_LIMITS[joint_name][1])
+
+            kp = min(imp.kp, self.MIT_KP_MAX)
+            kd = min(imp.kd, self.MIT_KD_MAX)
+
+            tau_ff = (
+                np.clip(tau_gravity[i], -self.TORQUE_LIMITS[joint_name], self.TORQUE_LIMITS[joint_name])
+                if i < len(tau_gravity)
+                else 0.0
+            )
+
+            self.control.controlMIT(motor, kp=kp, kd=kd, q=q_des, dq=0.0, tau=tau_ff)
+            goal_pos[joint_name] = q_des
+
+        # Gripper — force-position mode (same as pos_vel)
+        if "gripper" in goal_pos:
+            self.control.refresh_motor_status(self.motors["gripper"])
+            gripper_goal_pos_mapped = map_range(
+                goal_pos["gripper"], 0.0, 1.0, self.gripper_open_pos, self.gripper_closed_pos)
+            self.control.control_pos_force(
+                self.motors["gripper"],
+                gripper_goal_pos_mapped,
+                self.DM4310_SPEED * self.EMIT_VELOCITY_SCALE,
+                i_des=self.config.max_gripper_torque / self.DM4310_TORQUE_CONSTANT * self.EMIT_CURRENT_SCALE,
+            )
 
         return {f"{motor}.pos": val for motor, val in goal_pos.items()}
 
