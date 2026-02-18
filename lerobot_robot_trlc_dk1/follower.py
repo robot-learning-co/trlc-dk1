@@ -63,10 +63,10 @@ class DK1FollowerConfig(RobotConfig):
 
     # Joint impedance controller parameters (only used when controller_type="joint_impedance")
     urdf_path: str | None = None
-    impedance_config_path: str | None = None  # Path to per-joint YAML config
-    default_kp_large: float = 50.0            # Default kp for DM4340 (joints 1-3)
-    default_kp_small: float = 20.0            # Default kp for DM4310 (joints 4-6)
-    damping_ratio: float = 1.0               # Global damping ratio (kd = ratio * sqrt(kp))
+    controller_config_path: str | None = None  # Path to per-joint YAML config
+    default_kp_large: float = 50.0             # Default kp for DM4340 (joints 1-3)
+    default_kp_small: float = 20.0             # Default kp for DM4310 (joints 4-6)
+    damping_ratio: float = 1.0                # Global damping ratio (kd = ratio * sqrt(kp))
 
     # Shared parameters
     max_gripper_torque: float = 1.0  # Nm (/0.00875m spur gear radius = 114N gripper force)
@@ -158,8 +158,8 @@ class DK1Follower(Robot):
         """Load per-joint impedance parameters from YAML or fall back to defaults."""
         params: dict[str, JointImpedanceParams] = {}
 
-        if self.config.impedance_config_path:
-            yaml_path = Path(self.config.impedance_config_path)
+        if self.config.controller_config_path:
+            yaml_path = Path(self.config.controller_config_path)
             if yaml_path.exists():
                 with open(yaml_path, "r") as f:
                     yaml_config = yaml.safe_load(f)
@@ -277,6 +277,7 @@ class DK1Follower(Robot):
 
             if self.control.read_motor_param(motor, DM_variable.CTRL_MODE) is not None:
                 print(f"{key} ({motor.MotorType.name}) is connected.")
+                print(f"Controller type: {self.config.controller_type}")
 
                 if key == "gripper":
                     self.control.switchControlMode(motor, Control_Type.Torque_Pos)
@@ -344,6 +345,21 @@ class DK1Follower(Robot):
 
         return obs_dict
 
+    def _send_gripper_action(self, goal_pos: dict[str, float]) -> None:
+        """Send gripper command (force-position mode, shared by all controllers)."""
+        if "gripper" not in goal_pos:
+            return
+
+        self.control.refresh_motor_status(self.motors["gripper"])
+        gripper_goal_pos_mapped = map_range(
+            goal_pos["gripper"], 0.0, 1.0, self.gripper_open_pos, self.gripper_closed_pos)
+        self.control.control_pos_force(
+            self.motors["gripper"],
+            gripper_goal_pos_mapped,
+            self.DM4310_SPEED * self.EMIT_VELOCITY_SCALE,
+            i_des=self.config.max_gripper_torque / self.DM4310_TORQUE_CONSTANT * self.EMIT_CURRENT_SCALE,
+        )
+
     def send_action(self, action: dict[str, Any]) -> dict[str, Any]:
         if not self.is_connected:
             raise DeviceNotConnectedError(f"{self} is not connected.")
@@ -359,13 +375,7 @@ class DK1Follower(Robot):
         """Send position+velocity commands (POS_VEL firmware mode)."""
         for key, motor in self.motors.items():
             if key == "gripper":
-                self.control.refresh_motor_status(motor)
-                gripper_goal_pos_mapped = map_range(
-                    goal_pos[key], 0.0, 1.0, self.gripper_open_pos, self.gripper_closed_pos)
-                self.control.control_pos_force(
-                    motor, gripper_goal_pos_mapped,
-                    self.DM4310_SPEED * self.EMIT_VELOCITY_SCALE,
-                    i_des=self.config.max_gripper_torque / self.DM4310_TORQUE_CONSTANT * self.EMIT_CURRENT_SCALE)
+                self._send_gripper_action(goal_pos)
             else:
                 if key in self.JOINT_LIMITS:
                     goal_pos[key] = np.clip(goal_pos[key], self.JOINT_LIMITS[key][0], self.JOINT_LIMITS[key][1])
@@ -391,39 +401,33 @@ class DK1Follower(Robot):
 
         tau_gravity = self.compute_gravity_compensation(q_current)
 
-        # Send MIT commands to arm joints
-        for i, joint_name in enumerate(self.joint_names):
-            motor = self.motors[joint_name]
-            imp = self.params[joint_name]
+        # Send commands to all motors
+        for key, motor in self.motors.items():
+            if key == "gripper":
+                self._send_gripper_action(goal_pos)
+            elif key in goal_pos:
+                # MIT impedance control for arm joints
+                i = self.joint_names.index(key)
+                imp = self.params[key]
 
-            q_des = goal_pos.get(joint_name, motor.getPosition())
+                q_des = goal_pos[key]
 
-            if joint_name in self.JOINT_LIMITS:
-                q_des = np.clip(q_des, self.JOINT_LIMITS[joint_name][0], self.JOINT_LIMITS[joint_name][1])
+                if key in self.JOINT_LIMITS:
+                    q_des = np.clip(q_des, self.JOINT_LIMITS[key][0], self.JOINT_LIMITS[key][1])
 
-            kp = min(imp.kp, self.MIT_KP_MAX)
-            kd = min(imp.kd, self.MIT_KD_MAX)
+                kp = min(imp.kp, self.MIT_KP_MAX)
+                kd = min(imp.kd, self.MIT_KD_MAX)
 
-            tau_ff = (
-                np.clip(tau_gravity[i], -self.TORQUE_LIMITS[joint_name], self.TORQUE_LIMITS[joint_name])
-                if i < len(tau_gravity)
-                else 0.0
-            )
+                tau_ff = (
+                    np.clip(tau_gravity[i], -self.TORQUE_LIMITS[key], self.TORQUE_LIMITS[key])
+                    if i < len(tau_gravity)
+                    else 0.0
+                )
 
-            self.control.controlMIT(motor, kp=kp, kd=kd, q=q_des, dq=0.0, tau=tau_ff)
-            goal_pos[joint_name] = q_des
-
-        # Gripper — force-position mode (same as pos_vel)
-        if "gripper" in goal_pos:
-            self.control.refresh_motor_status(self.motors["gripper"])
-            gripper_goal_pos_mapped = map_range(
-                goal_pos["gripper"], 0.0, 1.0, self.gripper_open_pos, self.gripper_closed_pos)
-            self.control.control_pos_force(
-                self.motors["gripper"],
-                gripper_goal_pos_mapped,
-                self.DM4310_SPEED * self.EMIT_VELOCITY_SCALE,
-                i_des=self.config.max_gripper_torque / self.DM4310_TORQUE_CONSTANT * self.EMIT_CURRENT_SCALE,
-            )
+                self.control.controlMIT(motor, kp=0, kd=0, q=q_des, dq=0.0, tau=tau_ff)
+                goal_pos[key] = q_des
+            else:
+                logger.warning(f"No goal position provided for {key}, skipping command")
 
         return {f"{motor}.pos": val for motor, val in goal_pos.items()}
 
