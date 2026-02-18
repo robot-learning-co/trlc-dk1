@@ -91,29 +91,51 @@ uv run lerobot-teleoperate \
 </details>
 
 <details>
-<summary>Example II: Bimanual Recording
+<summary>Example II: Bimanual Teleoperation
 </summary>
 
 ```bash
-lerobot-record \
+uv run lerobot-teleoperate \
     --robot.type=bi_dk1_follower \
-    --robot.right_arm_port=/dev/ttyACM0 \
-    --robot.left_arm_port=/dev/ttyACM1 \
+    --robot.right_arm_port=/dev/ttyACM3 \
+    --robot.left_arm_port=/dev/ttyACM2 \
+    --robot.joint_velocity_scaling=0.2 \
+    --teleop.type=bi_dk1_leader \
+    --teleop.right_arm_port=/dev/ttyACM1 \
+    --teleop.left_arm_port=/dev/ttyACM0 \
+    --robot.cameras="{
+        right_wrist: {type: opencv, index_or_path: /dev/video0, width: 1280, height: 720, fps: 60, rotation: 180, fourcc: "MJPG"},
+        left_wrist: {type: opencv, index_or_path: /dev/video2, width: 1280, height: 720, fps: 60, rotation: 180, fourcc: "MJPG"}
+      }" \
+    --display_data=true
+```
+</details>
+
+<details>
+<summary>Example III: Bimanual Recording
+</summary>
+
+```bash
+uv run lerobot-record \
+    --robot.type=bi_dk1_follower \
+    --robot.right_arm_port=/dev/ttyACM3 \
+    --robot.left_arm_port=/dev/ttyACM2 \
     --robot.joint_velocity_scaling=1.0 \
     --teleop.type=bi_dk1_leader \
-    --teleop.right_arm_port=/dev/ttyACM2 \
-    --teleop.left_arm_port=/dev/ttyACM3 \
+    --teleop.right_arm_port=/dev/ttyACM1 \
+    --teleop.left_arm_port=/dev/ttyACM0 \
     --robot.cameras="{ 
         head: {type: opencv, index_or_path: /dev/video0, width: 960, height: 540, fps: 60, fourcc: "MJPG"},
         right_wrist: {type: opencv, index_or_path: /dev/video2, width: 960, height: 540, fps: 60, rotation: 180, fourcc: "MJPG"},
-        left_wrist: {type: opencv, index_or_path: /dev/video4, width: 960, height: 540, fps: 60, rotation: 180, fourcc: "MJPG"},
+        right_wrist: {type: opencv, index_or_path: /dev/video0, width: 960, height: 540, fps: 60, rotation: 180, fourcc: "MJPG"},
+        left_wrist: {type: opencv, index_or_path: /dev/video2, width: 960, height: 540, fps: 60, rotation: 180, fourcc: "MJPG"},
       }" \
     --dataset.repo_id=$USER/my_test_dataset \
     --dataset.push_to_hub=false \
     --dataset.num_episodes=3 \
     --dataset.episode_time_s=30 \
     --dataset.reset_time_s=20 \
-    --dataset.single_task="Test the LeRobot recording pipeling."
+    --dataset.single_task="Test the LeRobot recording pipeline."
 ```
 </details>
 
