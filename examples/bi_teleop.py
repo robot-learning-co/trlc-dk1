@@ -1,5 +1,5 @@
-from trlc_dk1.bi_follower import BiDK1Follower, BiDK1FollowerConfig
-from trlc_dk1.bi_leader import BiDK1Leader, BiDK1LeaderConfig
+from lerobot_robot_trlc_dk1.bi_follower import BiDK1Follower, BiDK1FollowerConfig
+from lerobot_robot_trlc_dk1.bi_leader import BiDK1Leader, BiDK1LeaderConfig
 import time
 import logging
 

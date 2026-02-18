@@ -1,15 +1,15 @@
-from trlc_dk1.follower import DK1Follower, DK1FollowerConfig
-from trlc_dk1.leader import DK1Leader, DK1LeaderConfig
+from lerobot_robot_trlc_dk1.follower import DK1Follower, DK1FollowerConfig
+from lerobot_robot_trlc_dk1.leader import DK1Leader, DK1LeaderConfig
 import time
 
 
 follower_config = DK1FollowerConfig(
-    port="/dev/tty.usbmodem00000000050C1",
+    port="/dev/ttyACM1",
     joint_velocity_scaling=0.2,
 )
 
 leader_config = DK1LeaderConfig(
-    port="/dev/tty.usbmodem5A680096411"
+    port="/dev/ttyACM0"
 )
 
 leader = DK1Leader(leader_config)

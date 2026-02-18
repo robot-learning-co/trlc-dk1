@@ -3,8 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "trlc_dk1"
-version = "0.1.0"
+name = "lerobot_robot_trlc_dk1"
+version = "0.3.0"
+requires-python = ">=3.12"
 dependencies = [
   "numpy>=2.0.1",
   "pyserial>=3.5",

@@ -1,4 +1,4 @@
-from trlc_dk1.motors.DM_Control_Python.DM_CAN import *
+from lerobot_robot_trlc_dk1.motors.DM_Control_Python.DM_CAN import *
 import serial
 import time
 
