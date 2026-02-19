@@ -204,6 +204,11 @@ class DK1Follower(Robot):
         logger.info(f"Loaded Pinocchio model from {urdf_path}")
         logger.info(f"Model has {self.pin_model.nq} DOF")
 
+        # Print joint ordering for verification
+        logger.info("Pinocchio joint order:")
+        for i, name in enumerate(self.pin_model.names[1:]):  # Skip universe joint
+            logger.info(f"  q[{i}] = {name}")
+
     def compute_gravity_compensation(self, q: np.ndarray) -> np.ndarray:
         """
         Compute gravity compensation torques using Pinocchio.
@@ -400,6 +405,7 @@ class DK1Follower(Robot):
                 q_current[i] = self.motors[joint_name].getPosition()
 
         tau_gravity = self.compute_gravity_compensation(q_current)
+        #print(f"tau_gravity: {tau_gravity}")
 
         # Send commands to all motors
         for key, motor in self.motors.items():
@@ -424,7 +430,11 @@ class DK1Follower(Robot):
                     else 0.0
                 )
 
-                self.control.controlMIT(motor, kp=0, kd=0, q=q_des, dq=0.0, tau=tau_ff)
+                
+                
+                kp=0.0
+                kd=0.0
+                self.control.controlMIT(motor, kp=kp, kd=kd, q=q_des, dq=0.0, tau=tau_ff)
                 goal_pos[key] = q_des
             else:
                 logger.warning(f"No goal position provided for {key}, skipping command")
