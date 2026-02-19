@@ -149,8 +149,14 @@ uv run lerobot-record \
     <img src="https://github.com/andreaskoepf/trlc-dk1-follower-urdf/blob/main/assets/dk1_vsual_right.png">
 </p>
 
-A high-quality URDF file was developed by community member Andreas Köpf:
+A URDF file was developed by community member Andreas Köpf:
 [andreaskoepf/trlc-dk1-follower-urdf](https://github.com/andreaskoepf/trlc-dk1-follower-urdf)
+
+The impedance controller requires a local clone of the URDF on the `fix/urdf` branch:
+
+```
+git clone -b fix/urdf git@github.com:rtkg/trlc-dk1-follower-urdf.git
+```
 
 ## Acknowledgements
 

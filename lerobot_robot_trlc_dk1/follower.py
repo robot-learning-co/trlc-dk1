@@ -430,10 +430,6 @@ class DK1Follower(Robot):
                     else 0.0
                 )
 
-                
-                
-                kp=0.0
-                kd=0.0
                 self.control.controlMIT(motor, kp=kp, kd=kd, q=q_des, dq=0.0, tau=tau_ff)
                 goal_pos[key] = q_des
             else:

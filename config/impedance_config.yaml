@@ -17,25 +17,25 @@
 
 joints:
   joint_1:  # DM4340 - shoulder rotation (low gravity load)
-    kp: 25.0        # kd = sqrt(25) = 5.0 -> exactly at MIT limit, critical damping
+    kp: 0.0        # kd = sqrt(25) = 5.0 -> exactly at MIT limit, critical damping
     damping_ratio: 1.0
 
   joint_2:  # DM4340 - shoulder pitch (highest gravity load, ~10-15 Nm)
-    kp: 50.0        # kd clamped to 5.0 (underdamped); gravity comp handles static load
+    kp: 0.0        # kd clamped to 5.0 (underdamped); gravity comp handles static load
     damping_ratio: 1.0
 
   joint_3:  # DM4340 - elbow
-    kp: 30.0        # kd = sqrt(30) = 5.48 -> clamped to 5.0, near critical
+    kp: 0.0        # kd = sqrt(30) = 5.48 -> clamped to 5.0, near critical
     damping_ratio: 1.0
 
   joint_4:  # DM4310 - wrist roll (light load)
-    kp: 15.0        # kd = sqrt(15) = 3.87 -> under limit, well-damped
+    kp: 0.0        # kd = sqrt(15) = 3.87 -> under limit, well-damped
     damping_ratio: 1.0
 
   joint_5:  # DM4310 - wrist pitch
-    kp: 15.0        # kd = sqrt(15) = 3.87 -> under limit, well-damped
+    kp: 0.0        # kd = sqrt(15) = 3.87 -> under limit, well-damped
     damping_ratio: 1.0
 
   joint_6:  # DM4310 - wrist rotation (end effector)
-    kp: 10.0        # kd = sqrt(10) = 3.16 -> well under limit
+    kp: 0.0        # kd = sqrt(10) = 3.16 -> well under limit
     damping_ratio: 1.0
