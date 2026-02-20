@@ -41,6 +41,14 @@ class BiDK1FollowerConfig(RobotConfig):
     controller_type: str = "pos_vel"  # "pos_vel" | "joint_impedance"
     disable_torque_on_disconnect: bool = False
     joint_velocity_scaling: float = 0.2
+
+    # Joint impedance controller parameters (only used when controller_type="joint_impedance")
+    urdf_path: str | None = None
+    controller_config_path: str | None = None  # Path to per-joint YAML config
+    default_kp_large: float = 50.0             # Default kp for DM4340 (joints 1-3)
+    default_kp_small: float = 20.0             # Default kp for DM4310 (joints 4-6)
+    damping_ratio: float = 1.0                # Global damping ratio (kd = ratio * sqrt(kp))
+
     max_gripper_torque: float = 1.0 # Nm (/0.00875m spur gear radius = 114N gripper force)
     cameras: dict[str, CameraConfig] = field(default_factory=dict)
 
@@ -63,6 +71,11 @@ class BiDK1Follower(Robot):
             controller_type=self.config.controller_type,
             disable_torque_on_disconnect=self.config.disable_torque_on_disconnect,
             joint_velocity_scaling=self.config.joint_velocity_scaling,
+            urdf_path=self.config.urdf_path,
+            controller_config_path=self.config.controller_config_path,
+            default_kp_large=self.config.default_kp_large,
+            default_kp_small=self.config.default_kp_small,
+            damping_ratio=self.config.damping_ratio,
             max_gripper_torque=self.config.max_gripper_torque,
         )
         right_arm_config = DK1FollowerConfig(
@@ -70,6 +83,11 @@ class BiDK1Follower(Robot):
             controller_type=self.config.controller_type,
             disable_torque_on_disconnect=self.config.disable_torque_on_disconnect,
             joint_velocity_scaling=self.config.joint_velocity_scaling,
+            urdf_path=self.config.urdf_path,
+            controller_config_path=self.config.controller_config_path,
+            default_kp_large=self.config.default_kp_large,
+            default_kp_small=self.config.default_kp_small,
+            damping_ratio=self.config.damping_ratio,
             max_gripper_torque=self.config.max_gripper_torque,
         )
         

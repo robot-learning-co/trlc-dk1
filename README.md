@@ -142,6 +142,55 @@ uv run lerobot-record \
 ```
 </details>
 
+<details>
+<summary>Example IV: Single Arm Teleoperation with Joint Impedance Control
+</summary>
+
+Instead of the default POS_VEL controller, you can run the follower arm with a joint impedance controller. This enables compliant, force-aware teleoperation where the arm yields to external forces rather than rigidly tracking positions. The impedance controller requires a URDF (see below) and a controller config file.
+
+```bash
+uv run lerobot-teleoperate \
+    --robot.type=dk1_follower \
+    --robot.controller_type=joint_impedance \
+    --robot.port=/dev/ttyACM3 \
+    --robot.urdf_path=/path/to/trlc-dk1-follower-urdf/TRLC-DK1-Follower.urdf \
+    --robot.controller_config_path=config/impedance_config.yaml \
+    --robot.disable_torque_on_disconnect=true \
+    --teleop.type=dk1_leader \
+    --teleop.port=/dev/ttyACM1 \
+    --robot.cameras="{
+        right_wrist: {type: opencv, index_or_path: /dev/video0, width: 1280, height: 720, fps: 60, rotation: 180, fourcc: "MJPG"}
+      }" \
+    --display_data=true
+```
+
+</details>
+
+<details>
+<summary>Example V: Bimanual Teleoperation with Joint Impedance Control
+</summary>
+
+```bash
+uv run lerobot-teleoperate \
+    --robot.type=bi_dk1_follower \
+    --robot.controller_type=joint_impedance \
+    --robot.right_arm_port=/dev/ttyACM3 \
+    --robot.left_arm_port=/dev/ttyACM2 \
+    --robot.urdf_path=/path/to/trlc-dk1-follower-urdf/TRLC-DK1-Follower.urdf \
+    --robot.controller_config_path=config/impedance_config.yaml \
+    --robot.disable_torque_on_disconnect=true \
+    --teleop.type=bi_dk1_leader \
+    --teleop.right_arm_port=/dev/ttyACM1 \
+    --teleop.left_arm_port=/dev/ttyACM0 \
+    --robot.cameras="{
+        right_wrist: {type: opencv, index_or_path: /dev/video0, width: 1280, height: 720, fps: 60, rotation: 180, fourcc: "MJPG"},
+        left_wrist: {type: opencv, index_or_path: /dev/video2, width: 1280, height: 720, fps: 60, rotation: 180, fourcc: "MJPG"}
+      }" \
+    --display_data=true
+```
+
+</details>
+
 ## URDF (v0.2)
 
 <p align="center">
@@ -151,7 +200,7 @@ uv run lerobot-record \
 A URDF file was developed by community member Andreas Köpf:
 [andreaskoepf/trlc-dk1-follower-urdf](https://github.com/andreaskoepf/trlc-dk1-follower-urdf)
 
-The impedance controller requires a local clone of the URDF on the `fix/urdf` branch:
+The impedance controller currently requires a local clone of the URDF on the `fix/urdf` branch:
 
 ```
 git clone -b fix/urdf git@github.com:rtkg/trlc-dk1-follower-urdf.git
