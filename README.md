@@ -79,14 +79,13 @@ The port values in the examples below correspond to the autonomy-eagle setup in 
 ```bash
 uv run lerobot-teleoperate \
     --robot.type=dk1_follower \
-    --robot.port=/dev/ttyACM0 \
+    --robot.port=/dev/ttyACM3 \
     --robot.joint_velocity_scaling=0.2 \
     --robot.disable_torque_on_disconnect=true \
     --teleop.type=dk1_leader \
     --teleop.port=/dev/ttyACM1 \
     --robot.cameras="{ 
-        context: {type: opencv, index_or_path: 0, width: 1280, height: 720, fps: 60, fourcc: "MJPG"}, 
-        wrist: {type: opencv, index_or_path: 1, width: 1280, height: 720, fps: 60, rotation: 180, fourcc: "MJPG"}
+        right_wrist: {type: opencv, index_or_path: /dev/video0, width: 1280, height: 720, fps: 60, rotation: 180, fourcc: "MJPG"}
       }" \
     --display_data=true
 ```

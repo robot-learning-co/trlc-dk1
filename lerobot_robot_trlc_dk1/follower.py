@@ -209,18 +209,18 @@ class DK1Follower(Robot):
         for i, name in enumerate(self.pin_model.names[1:]):  # Skip universe joint
             logger.info(f"  q[{i}] = {name}")
 
-    def compute_gravity_compensation(self, q: np.ndarray) -> np.ndarray:
+    def compute_feedforward_torque(self, q: np.ndarray, dq: np.ndarray) -> np.ndarray:
         """
-        Compute gravity compensation torques using Pinocchio.
+        Compute feedforward torques (gravity + Coriolis + centripetal) using Pinocchio.
 
         Args:
             q: Joint positions array matching the Pinocchio model DOF.
+            dq: Joint velocities array matching the Pinocchio model DOF.
 
         Returns:
-            Gravity compensation torques (Nm).
+            Feedforward torques (Nm).
         """
-        pin.computeGeneralizedGravity(self.pin_model, self.pin_data, q)
-        return self.pin_data.g.copy()
+        return pin.nonLinearEffects(self.pin_model, self.pin_data, q, dq)
 
     # ------------------------------------------------------------------
     # LeRobot Robot interface
@@ -392,20 +392,22 @@ class DK1Follower(Robot):
 
     def _send_action_impedance(self, goal_pos: dict[str, float]) -> dict[str, Any]:
         """
-        Send MIT impedance commands with gravity compensation feedforward.
+        Send MIT impedance commands with dynamics compensation feedforward.
 
         Control law (at motor driver level):
-            tau = kp * (q_des - q) + kd * (dq_des - dq) + tau_gravity
+            tau = kp * (q_des - q) + kd * (dq_des - dq) + tau_ff
+        where tau_ff includes gravity, Coriolis, and centripetal terms.
         """
-        # Read current arm positions for gravity computation
+        # Read current arm state for dynamics computation
         q_current = np.zeros(self.pin_model.nq)
+        dq_current = np.zeros(self.pin_model.nq)
         for i, joint_name in enumerate(self.joint_names):
             self.control.refresh_motor_status(self.motors[joint_name])
             if i < self.pin_model.nq:
                 q_current[i] = self.motors[joint_name].getPosition()
+                dq_current[i] = self.motors[joint_name].getVelocity()
 
-        tau_gravity = self.compute_gravity_compensation(q_current)
-        #print(f"tau_gravity: {tau_gravity}")
+        tau_ff = self.compute_feedforward_torque(q_current, dq_current)
 
         # Send commands to all motors
         for key, motor in self.motors.items():
@@ -424,16 +426,15 @@ class DK1Follower(Robot):
                 kp = min(imp.kp, self.MIT_KP_MAX)
                 kd = min(imp.kd, self.MIT_KD_MAX)
 
-                tau_ff = (
-                    np.clip(tau_gravity[i], -self.TORQUE_LIMITS[key], self.TORQUE_LIMITS[key])
-                    if i < len(tau_gravity)
+                tau_joint_ff = (
+                    np.clip(tau_ff[i], -self.TORQUE_LIMITS[key], self.TORQUE_LIMITS[key])
+                    if i < len(tau_ff)
                     else 0.0
                 )
 
-                self.control.controlMIT(motor, kp=kp, kd=kd, q=q_des, dq=0.0, tau=tau_ff)
+                self.control.controlMIT(motor, kp=kp, kd=kd, q=q_des, dq=0.0, tau=tau_joint_ff)
+
                 goal_pos[key] = q_des
-            else:
-                logger.warning(f"No goal position provided for {key}, skipping command")
 
         return {f"{motor}.pos": val for motor, val in goal_pos.items()}
 
