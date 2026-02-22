@@ -191,6 +191,41 @@ uv run lerobot-teleoperate \
 
 </details>
 
+## Remote Visualization
+
+To visualize data from a robot running on a headless control machine (e.g. via SSH), use the Rerun gRPC viewer.
+
+**On your local machine**, start the Rerun web server and open the native viewer:
+
+```bash
+# Terminal 1 — start the gRPC proxy and web viewer (http://localhost:9090)
+rerun --serve-web --port 9876
+
+# Terminal 2 — open the native desktop viewer connected to the proxy
+# (run inside a venv with rerun-sdk installed)
+rerun --connect rerun+http://127.0.0.1:9876/proxy
+```
+
+**On the control machine** (via SSH), launch teleoperation pointing to your local machine's IP:
+
+```bash
+RERUN_FLUSH_NUM_BYTES=1000 uv run lerobot-teleoperate \
+    --robot.type=dk1_follower \
+    --robot.controller_type=joint_impedance \
+    --robot.port=/dev/ttyACM1 \
+    --robot.urdf_path=/home/rtkg/Coding/trlc-dk1-follower-urdf/TRLC-DK1-Follower.urdf \
+    --robot.controller_config_path=config/impedance_config.yaml \
+    --robot.disable_torque_on_disconnect=true \
+    --teleop.type=dk1_leader \
+    --teleop.port=/dev/ttyACM3 \
+    --robot.cameras='{"right_wrist": {"type": "opencv", "index_or_path": "/dev/video0", "width": 1280, "height": 720, "fps": 60, "rotation": 180, "fourcc": "MJPG"}}' \
+    --display_data=true \
+    --display_url=<YOUR_LOCAL_IP> \
+    --display_port=9876
+```
+
+Replace `<YOUR_LOCAL_IP>` with your local machine's IP on the shared network (e.g. `10.11.10.36`). The `RERUN_FLUSH_NUM_BYTES=1000` environment variable ensures data is streamed promptly to the viewer.
+
 ## URDF (v0.2)
 
 <p align="center">
