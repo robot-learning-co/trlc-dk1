@@ -34,6 +34,16 @@ logger = logging.getLogger(__name__)
 
 # ── Motor controller configs (draccus ChoiceRegistry) ─────────────────────────
 
+@dataclass
+class JointParams:
+    """Per-joint motor parameters (acc/dec/kp/ki)."""
+
+    acc: float = 10.0
+    dec: float = -10.0
+    kp: float = 200.0
+    ki: float = 10.0
+
+
 @dataclass(kw_only=True)
 class DK1ControllerConfig(draccus.ChoiceRegistry, abc.ABC):
     """Motor controller configuration for DK1 joints."""
@@ -46,18 +56,30 @@ class DK1ControllerConfig(draccus.ChoiceRegistry, abc.ABC):
 @DK1ControllerConfig.register_subclass("pos_vel")
 @dataclass
 class PosVelControllerConfig(DK1ControllerConfig):
-    """Position-Velocity controller with PI position loop (joints 1-3)."""
+    """Position-Velocity controller with per-joint PI position loop."""
 
-    acc: float = 10.0   # Acceleration limit
-    dec: float = -10.0  # Deceleration limit
-    kp: float = 200.0   # Position loop P-gain (KP_APR)
-    ki: float = 10.0    # Position loop I-gain (KI_APR)
+    # DM4340 shoulder
+    joint_1: JointParams = field(default_factory=JointParams)
+    joint_2: JointParams = field(default_factory=JointParams)
+    joint_3: JointParams = field(default_factory=JointParams)
+    # DM4310 wrist (conservative defaults)
+    joint_4: JointParams = field(
+        default_factory=lambda: JointParams(acc=5.0, dec=-5.0, kp=100.0, ki=5.0)
+    )
+    joint_5: JointParams = field(
+        default_factory=lambda: JointParams(acc=5.0, dec=-5.0, kp=100.0, ki=5.0)
+    )
+    joint_6: JointParams = field(
+        default_factory=lambda: JointParams(acc=5.0, dec=-5.0, kp=100.0, ki=5.0)
+    )
+    # DM4310 gripper (only kp is used by Torque_Pos mode)
+    gripper: JointParams = field(default_factory=lambda: JointParams(kp=100.0))
 
 
 @DK1ControllerConfig.register_subclass("torque_pos")
 @dataclass
 class TorquePosControllerConfig(DK1ControllerConfig):
-    """Force-Position mixed controller (gripper)."""
+    """Force-Position mixed controller (gripper). Kept for backward compat."""
 
     kp: float = 100.0  # Position P-gain (KP_APR)
 
@@ -184,16 +206,15 @@ class DK1Follower(Robot):
                     f"Unable to read from {key} ({motor.MotorType.name}).")
 
         jc = self.config.joint_controller
-        for joint in ["joint_1", "joint_2", "joint_3"]:
-            self.control.change_motor_param(self.motors[joint], DM_variable.ACC, jc.acc)
-            self.control.change_motor_param(self.motors[joint], DM_variable.DEC, jc.dec)
-            self.control.change_motor_param(self.motors[joint], DM_variable.KP_APR, jc.kp)
-            self.control.change_motor_param(self.motors[joint], DM_variable.KI_APR, jc.ki)
-
-        gc = self.config.gripper_controller
-        for joint in ["gripper"]:
-            self.control.change_motor_param(
-                self.motors[joint], DM_variable.KP_APR, gc.kp)
+        for name in ["joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6"]:
+            jp = getattr(jc, name)
+            self.control.change_motor_param(self.motors[name], DM_variable.ACC, jp.acc)
+            self.control.change_motor_param(self.motors[name], DM_variable.DEC, jp.dec)
+            self.control.change_motor_param(self.motors[name], DM_variable.KP_APR, jp.kp)
+            self.control.change_motor_param(self.motors[name], DM_variable.KI_APR, jp.ki)
+        # Gripper: only kp (Torque_Pos mode)
+        self.control.change_motor_param(
+            self.motors["gripper"], DM_variable.KP_APR, jc.gripper.kp)
 
         # Open gripper and set zero position
         self.control.switchControlMode(
@@ -260,8 +281,13 @@ class DK1Follower(Robot):
                 if key in self.JOINT_LIMITS:
                     goal_pos[key] = np.clip(goal_pos[key], self.JOINT_LIMITS[key][0], self.JOINT_LIMITS[key][1])
 
+                max_speed = (
+                    self.DM4310_SPEED
+                    if motor.MotorType == DM_Motor_Type.DM4310
+                    else self.DM4340_SPEED
+                )
                 self.control.control_Pos_Vel(
-                    motor, goal_pos[key], self.config.joint_velocity_scaling*self.DM4340_SPEED)
+                    motor, goal_pos[key], self.config.joint_velocity_scaling * max_speed)
 
         return {f"{motor}.pos": val for motor, val in goal_pos.items()}
 
