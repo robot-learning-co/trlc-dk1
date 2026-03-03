@@ -171,9 +171,12 @@ class DK1Follower(Robot):
                 self.control.change_motor_param(self.motors[name], DM_variable.DEC, jp.dec)
                 self.control.change_motor_param(self.motors[name], DM_variable.KP_APR, jp.kp)
                 self.control.change_motor_param(self.motors[name], DM_variable.KI_APR, jp.ki)
-            # Gripper: only kp (Torque_Pos mode)
+
+        # Gripper: only kp (Torque_Pos mode) — from separate gripper_controller
+        gc = self.config.gripper_controller
+        if isinstance(gc, TorquePosControllerConfig):
             self.control.change_motor_param(
-                self.motors["gripper"], DM_variable.KP_APR, jc.gripper.kp)
+                self.motors["gripper"], DM_variable.KP_APR, gc.kp)
 
         # Open gripper and set zero position
         self.control.switchControlMode(

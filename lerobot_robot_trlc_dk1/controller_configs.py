@@ -28,11 +28,6 @@ class PosVelControllerConfig(DK1ControllerConfig):
         kp: float = 200.0
         ki: float = 10.0
 
-    @dataclass
-    class GripperParams:
-        """Gripper parameters (only kp used in Torque_Pos mode)."""
-        kp: float = 100.0
-
     # DM4340 shoulder
     joint_1: JointParams = field(default_factory=JointParams)
     joint_2: JointParams = field(default_factory=JointParams)
@@ -47,8 +42,6 @@ class PosVelControllerConfig(DK1ControllerConfig):
     joint_6: JointParams = field(
         default_factory=lambda: PosVelControllerConfig.JointParams(acc=5.0, dec=-5.0, kp=100.0, ki=5.0)
     )
-    # DM4310 gripper (only kp is used by Torque_Pos mode)
-    gripper: GripperParams = field(default_factory=GripperParams)
 
 
 @DK1ControllerConfig.register_subclass("torque_pos")
