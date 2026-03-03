@@ -34,16 +34,6 @@ logger = logging.getLogger(__name__)
 
 # ── Motor controller configs (draccus ChoiceRegistry) ─────────────────────────
 
-@dataclass
-class JointParams:
-    """Per-joint motor parameters (acc/dec/kp/ki)."""
-
-    acc: float = 10.0
-    dec: float = -10.0
-    kp: float = 200.0
-    ki: float = 10.0
-
-
 @dataclass(kw_only=True)
 class DK1ControllerConfig(draccus.ChoiceRegistry, abc.ABC):
     """Motor controller configuration for DK1 joints."""
@@ -58,22 +48,35 @@ class DK1ControllerConfig(draccus.ChoiceRegistry, abc.ABC):
 class PosVelControllerConfig(DK1ControllerConfig):
     """Position-Velocity controller with per-joint PI position loop."""
 
+    @dataclass
+    class JointParams:
+        """Per-joint parameters for PosVel control mode (acc/dec/kp/ki)."""
+        acc: float = 10.0
+        dec: float = -10.0
+        kp: float = 200.0
+        ki: float = 10.0
+
+    @dataclass
+    class GripperParams:
+        """Gripper parameters (only kp used in Torque_Pos mode)."""
+        kp: float = 100.0
+
     # DM4340 shoulder
     joint_1: JointParams = field(default_factory=JointParams)
     joint_2: JointParams = field(default_factory=JointParams)
     joint_3: JointParams = field(default_factory=JointParams)
     # DM4310 wrist (conservative defaults)
     joint_4: JointParams = field(
-        default_factory=lambda: JointParams(acc=5.0, dec=-5.0, kp=100.0, ki=5.0)
+        default_factory=lambda: PosVelControllerConfig.JointParams(acc=5.0, dec=-5.0, kp=100.0, ki=5.0)
     )
     joint_5: JointParams = field(
-        default_factory=lambda: JointParams(acc=5.0, dec=-5.0, kp=100.0, ki=5.0)
+        default_factory=lambda: PosVelControllerConfig.JointParams(acc=5.0, dec=-5.0, kp=100.0, ki=5.0)
     )
     joint_6: JointParams = field(
-        default_factory=lambda: JointParams(acc=5.0, dec=-5.0, kp=100.0, ki=5.0)
+        default_factory=lambda: PosVelControllerConfig.JointParams(acc=5.0, dec=-5.0, kp=100.0, ki=5.0)
     )
     # DM4310 gripper (only kp is used by Torque_Pos mode)
-    gripper: JointParams = field(default_factory=lambda: JointParams(kp=100.0))
+    gripper: GripperParams = field(default_factory=GripperParams)
 
 
 @DK1ControllerConfig.register_subclass("torque_pos")
@@ -82,6 +85,27 @@ class TorquePosControllerConfig(DK1ControllerConfig):
     """Force-Position mixed controller (gripper). Kept for backward compat."""
 
     kp: float = 100.0  # Position P-gain (KP_APR)
+
+
+@DK1ControllerConfig.register_subclass("mit")
+@dataclass
+class MITControllerConfig(DK1ControllerConfig):
+    """MIT impedance controller with per-joint (kp, kd) gains."""
+
+    @dataclass
+    class JointParams:
+        """Per-joint parameters for MIT impedance control mode (kp/kd)."""
+        kp: float = 50.0   # Position stiffness (0-500)
+        kd: float = 3.0     # Velocity damping (0-5)
+
+    # DM4340 shoulder joints
+    joint_1: JointParams = field(default_factory=lambda: MITControllerConfig.JointParams(kp=80.0, kd=5.0))
+    joint_2: JointParams = field(default_factory=lambda: MITControllerConfig.JointParams(kp=80.0, kd=5.0))
+    joint_3: JointParams = field(default_factory=lambda: MITControllerConfig.JointParams(kp=80.0, kd=5.0))
+    # DM4310 wrist joints
+    joint_4: JointParams = field(default_factory=lambda: MITControllerConfig.JointParams(kp=40.0, kd=1.5))
+    joint_5: JointParams = field(default_factory=lambda: MITControllerConfig.JointParams(kp=10.0, kd=1.5))
+    joint_6: JointParams = field(default_factory=lambda: MITControllerConfig.JointParams(kp=10.0, kd=1.5))
 
 
 def map_range(x: float, in_min: float, in_max: float, out_min: float, out_max: float) -> float:
@@ -189,6 +213,10 @@ class DK1Follower(Robot):
 
     def configure(self) -> None:
 
+        jc = self.config.joint_controller
+        is_mit = isinstance(jc, MITControllerConfig)
+        arm_control_mode = Control_Type.MIT if is_mit else Control_Type.POS_VEL
+
         for key, motor in self.motors.items():
             self.control.addMotor(motor)
 
@@ -199,22 +227,26 @@ class DK1Follower(Robot):
             if self.control.read_motor_param(motor, DM_variable.CTRL_MODE) is not None:
                 print(f"{key} ({motor.MotorType.name}) is connected.")
 
-                self.control.switchControlMode(motor, Control_Type.POS_VEL)
+                if key == "gripper":
+                    self.control.switchControlMode(motor, Control_Type.POS_VEL)
+                else:
+                    self.control.switchControlMode(motor, arm_control_mode)
                 self.control.enable(motor)
             else:
                 raise Exception(
                     f"Unable to read from {key} ({motor.MotorType.name}).")
 
-        jc = self.config.joint_controller
-        for name in ["joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6"]:
-            jp = getattr(jc, name)
-            self.control.change_motor_param(self.motors[name], DM_variable.ACC, jp.acc)
-            self.control.change_motor_param(self.motors[name], DM_variable.DEC, jp.dec)
-            self.control.change_motor_param(self.motors[name], DM_variable.KP_APR, jp.kp)
-            self.control.change_motor_param(self.motors[name], DM_variable.KI_APR, jp.ki)
-        # Gripper: only kp (Torque_Pos mode)
-        self.control.change_motor_param(
-            self.motors["gripper"], DM_variable.KP_APR, jc.gripper.kp)
+        # Configure arm joint registers (PosVel only — MIT sends gains per-frame)
+        if isinstance(jc, PosVelControllerConfig):
+            for name in ["joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6"]:
+                jp = getattr(jc, name)
+                self.control.change_motor_param(self.motors[name], DM_variable.ACC, jp.acc)
+                self.control.change_motor_param(self.motors[name], DM_variable.DEC, jp.dec)
+                self.control.change_motor_param(self.motors[name], DM_variable.KP_APR, jp.kp)
+                self.control.change_motor_param(self.motors[name], DM_variable.KI_APR, jp.ki)
+            # Gripper: only kp (Torque_Pos mode)
+            self.control.change_motor_param(
+                self.motors["gripper"], DM_variable.KP_APR, jc.gripper.kp)
 
         # Open gripper and set zero position
         self.control.switchControlMode(
@@ -281,13 +313,19 @@ class DK1Follower(Robot):
                 if key in self.JOINT_LIMITS:
                     goal_pos[key] = np.clip(goal_pos[key], self.JOINT_LIMITS[key][0], self.JOINT_LIMITS[key][1])
 
-                max_speed = (
-                    self.DM4310_SPEED
-                    if motor.MotorType == DM_Motor_Type.DM4310
-                    else self.DM4340_SPEED
-                )
-                self.control.control_Pos_Vel(
-                    motor, goal_pos[key], self.config.joint_velocity_scaling * max_speed)
+                jc = self.config.joint_controller
+                if isinstance(jc, MITControllerConfig):
+                    jp = getattr(jc, key)
+                    self.control.controlMIT(
+                        motor, jp.kp, jp.kd, goal_pos[key], dq=0.0, tau=0.0)
+                else:
+                    max_speed = (
+                        self.DM4310_SPEED
+                        if motor.MotorType == DM_Motor_Type.DM4310
+                        else self.DM4340_SPEED
+                    )
+                    self.control.control_Pos_Vel(
+                        motor, goal_pos[key], self.config.joint_velocity_scaling * max_speed)
 
         return {f"{motor}.pos": val for motor, val in goal_pos.items()}
 
