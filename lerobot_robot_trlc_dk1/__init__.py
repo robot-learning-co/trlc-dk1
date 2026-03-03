@@ -1,9 +1,9 @@
 from .leader import DK1Leader, DK1LeaderConfig
-from .follower import (
-    DK1Follower, DK1FollowerConfig,
+from .controller_configs import (
     DK1ControllerConfig, PosVelControllerConfig, TorquePosControllerConfig,
     MITControllerConfig,
 )
+from .follower import DK1Follower, DK1FollowerConfig
 from .bi_leader import BiDK1Leader, BiDK1LeaderConfig
 from .bi_follower import BiDK1Follower, BiDK1FollowerConfig
 

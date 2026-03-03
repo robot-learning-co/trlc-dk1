@@ -23,9 +23,12 @@ from lerobot.cameras.utils import make_cameras_from_configs
 from lerobot.robots import Robot, RobotConfig
 
 from lerobot_robot_trlc_dk1.motors.DM_Control_Python.DM_CAN import *
-from lerobot_robot_trlc_dk1.follower import (
-    DK1Follower, DK1FollowerConfig,
-    DK1ControllerConfig, PosVelControllerConfig, TorquePosControllerConfig,
+from lerobot_robot_trlc_dk1.follower import DK1Follower, DK1FollowerConfig
+from lerobot_robot_trlc_dk1.controller_configs import (
+    DK1ControllerConfig,
+    PosVelControllerConfig,
+    TorquePosControllerConfig,
+    MITControllerConfig,
 )
 
 logger = logging.getLogger(__name__)
