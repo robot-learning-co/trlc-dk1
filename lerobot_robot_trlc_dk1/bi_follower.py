@@ -23,7 +23,10 @@ from lerobot.cameras.utils import make_cameras_from_configs
 from lerobot.robots import Robot, RobotConfig
 
 from lerobot_robot_trlc_dk1.motors.DM_Control_Python.DM_CAN import *
-from lerobot_robot_trlc_dk1.follower import DK1Follower, DK1FollowerConfig
+from lerobot_robot_trlc_dk1.follower import (
+    DK1Follower, DK1FollowerConfig,
+    DK1ControllerConfig, PosVelControllerConfig, TorquePosControllerConfig,
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -41,6 +44,8 @@ class BiDK1FollowerConfig(RobotConfig):
     disable_torque_on_disconnect: bool = False
     joint_velocity_scaling: float = 0.2
     max_gripper_torque: float = 1.0 # Nm (/0.00875m spur gear radius = 114N gripper force)
+    joint_controller: DK1ControllerConfig = field(default_factory=PosVelControllerConfig)
+    gripper_controller: DK1ControllerConfig = field(default_factory=TorquePosControllerConfig)
     cameras: dict[str, CameraConfig] = field(default_factory=dict)
 
 
@@ -62,12 +67,16 @@ class BiDK1Follower(Robot):
             disable_torque_on_disconnect=self.config.disable_torque_on_disconnect,
             joint_velocity_scaling=self.config.joint_velocity_scaling,
             max_gripper_torque=self.config.max_gripper_torque,
+            joint_controller=self.config.joint_controller,
+            gripper_controller=self.config.gripper_controller,
         )
         right_arm_config = DK1FollowerConfig(
             port=self.config.right_arm_port,
             disable_torque_on_disconnect=self.config.disable_torque_on_disconnect,
             joint_velocity_scaling=self.config.joint_velocity_scaling,
             max_gripper_torque=self.config.max_gripper_torque,
+            joint_controller=self.config.joint_controller,
+            gripper_controller=self.config.gripper_controller,
         )
         
         self.left_arm = DK1Follower(left_arm_config)

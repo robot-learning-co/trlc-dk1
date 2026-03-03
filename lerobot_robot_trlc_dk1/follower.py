@@ -12,6 +12,7 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
+import abc
 from dataclasses import dataclass, field
 from functools import cached_property
 import serial
@@ -19,6 +20,7 @@ import time
 import logging
 from typing import Any
 
+import draccus
 from lerobot.cameras import CameraConfig
 from lerobot.cameras.utils import make_cameras_from_configs
 from lerobot.robots import Robot, RobotConfig
@@ -28,6 +30,36 @@ from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnected
 from lerobot_robot_trlc_dk1.motors.DM_Control_Python.DM_CAN import *
 
 logger = logging.getLogger(__name__)
+
+
+# ── Motor controller configs (draccus ChoiceRegistry) ─────────────────────────
+
+@dataclass(kw_only=True)
+class DK1ControllerConfig(draccus.ChoiceRegistry, abc.ABC):
+    """Motor controller configuration for DK1 joints."""
+
+    @property
+    def type(self) -> str:
+        return self.get_choice_name(self.__class__)
+
+
+@DK1ControllerConfig.register_subclass("pos_vel")
+@dataclass
+class PosVelControllerConfig(DK1ControllerConfig):
+    """Position-Velocity controller with PI position loop (joints 1-3)."""
+
+    acc: float = 10.0   # Acceleration limit
+    dec: float = -10.0  # Deceleration limit
+    kp: float = 200.0   # Position loop P-gain (KP_APR)
+    ki: float = 10.0    # Position loop I-gain (KI_APR)
+
+
+@DK1ControllerConfig.register_subclass("torque_pos")
+@dataclass
+class TorquePosControllerConfig(DK1ControllerConfig):
+    """Force-Position mixed controller (gripper)."""
+
+    kp: float = 100.0  # Position P-gain (KP_APR)
 
 
 def map_range(x: float, in_min: float, in_max: float, out_min: float, out_max: float) -> float:
@@ -41,6 +73,8 @@ class DK1FollowerConfig(RobotConfig):
     disable_torque_on_disconnect: bool = False
     joint_velocity_scaling: float = 0.2
     max_gripper_torque: float = 1.0 # Nm (/0.00875m spur gear radius = 114N gripper force)
+    joint_controller: DK1ControllerConfig = field(default_factory=PosVelControllerConfig)
+    gripper_controller: DK1ControllerConfig = field(default_factory=TorquePosControllerConfig)
     cameras: dict[str, CameraConfig] = field(default_factory=dict)
 
 
@@ -149,15 +183,17 @@ class DK1Follower(Robot):
                 raise Exception(
                     f"Unable to read from {key} ({motor.MotorType.name}).")
 
+        jc = self.config.joint_controller
         for joint in ["joint_1", "joint_2", "joint_3"]:
-            self.control.change_motor_param(self.motors[joint], DM_variable.ACC, 10.0)
-            self.control.change_motor_param(self.motors[joint], DM_variable.DEC, -10.0)
-            self.control.change_motor_param(self.motors[joint], DM_variable.KP_APR, 200)
-            self.control.change_motor_param(self.motors[joint], DM_variable.KI_APR, 10)
+            self.control.change_motor_param(self.motors[joint], DM_variable.ACC, jc.acc)
+            self.control.change_motor_param(self.motors[joint], DM_variable.DEC, jc.dec)
+            self.control.change_motor_param(self.motors[joint], DM_variable.KP_APR, jc.kp)
+            self.control.change_motor_param(self.motors[joint], DM_variable.KI_APR, jc.ki)
 
+        gc = self.config.gripper_controller
         for joint in ["gripper"]:
             self.control.change_motor_param(
-                self.motors[joint], DM_variable.KP_APR, 100)
+                self.motors[joint], DM_variable.KP_APR, gc.kp)
 
         # Open gripper and set zero position
         self.control.switchControlMode(
