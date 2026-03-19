@@ -76,6 +76,7 @@ class DK1MotorChain:
 
         # Set by motor thread to indicate actual gripper zero after calibration
         self.gripper_open_pos: float = config.gripper_open_pos
+        self.gripper_closed_pos: float = config.gripper_closed_pos
 
         # Motor objects — created in start()
         self._motors: dict[str, Motor] = {}
@@ -212,7 +213,7 @@ class DK1MotorChain:
         self._calibrate_gripper()
 
     def _calibrate_gripper(self) -> None:
-        """Spin gripper open until torque spike, then set zero position."""
+        """Spin gripper open until stall, set zero, then spin closed until stall to find range."""
         assert self._control is not None
         gripper = self._motors["gripper"]
 
@@ -221,54 +222,69 @@ class DK1MotorChain:
         self._control.enable(gripper)
 
         # Calibration parameters
-        tau_cal = 0.2  # Nm
+        tau_cal_open = 0.8  # Nm
+        tau_cal_close = 0.8  # Nm
         kd_cal = 0.1   # rad/s damping
         stall_threshold_dq = 0.2  # rad/s
         stall_duration = 0.2  # seconds
         
-        print("Calibrating gripper: moving to end-stop with %.2f Nm torque...", tau_cal)
-        
-        stall_start_time = None
-        while True:
-            # Send MIT command: no position control, only constant torque + damping
-            self._control.controlMIT(gripper, 0.0, kd_cal, 0.0, 0.0, tau_cal)
-            
-            dq = gripper.getVelocity()
-            if abs(dq) < stall_threshold_dq:
-                if stall_start_time is None:
-                    stall_start_time = time.monotonic()
-                elif time.monotonic() - stall_start_time > stall_duration:
-                    # Stalled at end-stop
-                    break
-            else:
-                stall_start_time = None
-            
-            time.sleep(0.01)
+        def move_until_stall(torque: float, label: str):
+            print(f"Calibrating gripper: moving to {label} end-stop with {torque:.2f} Nm torque...")
+            stall_start_time = None
+            while True:
+                # Send MIT command: no position control, only constant torque + damping
+                self._control.controlMIT(gripper, 0.0, kd_cal, 0.0, 0.0, torque)
+                
+                dq = gripper.getVelocity()
+                if abs(dq) < stall_threshold_dq:
+                    if stall_start_time is None:
+                        stall_start_time = time.monotonic()
+                    elif time.monotonic() - stall_start_time > stall_duration:
+                        # Stalled at end-stop
+                        break
+                else:
+                    stall_start_time = None
+                
+                time.sleep(0.01)
+
+        # 1. Move to OPEN
+        move_until_stall(tau_cal_open, "OPEN")
 
         # Stop torque
         self._control.controlMIT(gripper, 0.0, 0.1, 0.0, 0.0, 0.0)
         time.sleep(0.1)
 
-        # Set zero position
+        # Set zero position at OPEN
         self._control.disable(gripper)
         self._control.set_zero_position(gripper)
         time.sleep(0.2)
         self._control.enable(gripper)
+        
+        self.gripper_open_pos = 0.0
+        self._config.gripper_open_pos = 0.0
+        
+        # 2. Move to CLOSED (negative torque)
+        move_until_stall(-tau_cal_close, "CLOSED")
+        
+        # Record closed position
+        self._control.refresh_motor_status(gripper)
+        self.gripper_closed_pos = gripper.getPosition()
+        self._config.gripper_closed_pos = self.gripper_closed_pos
 
-        # # Record open position (should be zero now)
-        # self._control.refresh_motor_status(gripper)
-        self.gripper_open_pos = gripper.getPosition()
+        # Stop torque
+        self._control.controlMIT(gripper, 0.0, 0.1, 0.0, 0.0, 0.0)
+        time.sleep(0.1)
 
         # Switch to EMIT (Torque_Pos) mode for force-controlled grasping
         self._control.switchControlMode(gripper, Control_Type.Torque_Pos)
-
+        
         # Read initial gripper state
         self._control.refresh_motor_status(gripper)
         self._pos[6] = gripper.getPosition()
         self._vel[6] = gripper.getVelocity()
         self._torque[6] = gripper.getTorque()
 
-        print("Gripper calibrated: open position = %.4f", self.gripper_open_pos)
+        print(f"Gripper calibrated: open={self._config.gripper_open_pos:.4f}, closed={self._config.gripper_closed_pos:.4f}")
 
     # -------------------------------------------------------------------------
     # 250 Hz motor loop
