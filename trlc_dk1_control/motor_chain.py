@@ -216,21 +216,47 @@ class DK1MotorChain:
         assert self._control is not None
         gripper = self._motors["gripper"]
 
-        self._control.switchControlMode(gripper, Control_Type.VEL)
+        # Use MIT mode with small torque and damping for safety
+        self._control.switchControlMode(gripper, Control_Type.MIT)
         self._control.enable(gripper)
-        self._control.control_Vel(gripper, 10.0)
 
+        # Calibration parameters
+        tau_cal = 0.2  # Nm
+        kd_cal = 0.1   # rad/s damping
+        stall_threshold_dq = 0.2  # rad/s
+        stall_duration = 0.2  # seconds
+        
+        print("Calibrating gripper: moving to end-stop with %.2f Nm torque...", tau_cal)
+        
+        stall_start_time = None
         while True:
-            self._control.refresh_motor_status(gripper)
-            if gripper.getTorque() > 0.7:
-                self._control.control_Vel(gripper, 0.0)
-                self._control.disable(gripper)
-                self._control.set_zero_position(gripper)
-                time.sleep(0.2)
-                self._control.enable(gripper)
-                break
+            # Send MIT command: no position control, only constant torque + damping
+            self._control.controlMIT(gripper, 0.0, kd_cal, 0.0, 0.0, tau_cal)
+            
+            dq = gripper.getVelocity()
+            if abs(dq) < stall_threshold_dq:
+                if stall_start_time is None:
+                    stall_start_time = time.monotonic()
+                elif time.monotonic() - stall_start_time > stall_duration:
+                    # Stalled at end-stop
+                    break
+            else:
+                stall_start_time = None
+            
             time.sleep(0.01)
 
+        # Stop torque
+        self._control.controlMIT(gripper, 0.0, 0.1, 0.0, 0.0, 0.0)
+        time.sleep(0.1)
+
+        # Set zero position
+        self._control.disable(gripper)
+        self._control.set_zero_position(gripper)
+        time.sleep(0.2)
+        self._control.enable(gripper)
+
+        # # Record open position (should be zero now)
+        # self._control.refresh_motor_status(gripper)
         self.gripper_open_pos = gripper.getPosition()
 
         # Switch to EMIT (Torque_Pos) mode for force-controlled grasping
@@ -242,7 +268,7 @@ class DK1MotorChain:
         self._vel[6] = gripper.getVelocity()
         self._torque[6] = gripper.getTorque()
 
-        print("Gripper calibrated: open position =", self.gripper_open_pos)
+        print("Gripper calibrated: open position = %.4f", self.gripper_open_pos)
 
     # -------------------------------------------------------------------------
     # 250 Hz motor loop
