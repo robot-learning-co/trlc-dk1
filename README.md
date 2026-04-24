@@ -46,8 +46,11 @@ Copyright 2025-2026 The Robot Learning Company UG (haftungsbeschränkt). All rig
 ```
 git clone https://github.com/robot-learning-co/trlc-dk1.git
 uv venv
-uv pip install -e .
+GIT_LFS_SKIP_SMUDGE=1 uv pip install -e .
 ```
+GIT_LFS_SKIP_SMUDGE=1 is needed to pull LeRobot as a dependency.
+
+
 This repo uses [LeRobot's plugin conventions](https://huggingface.co/docs/lerobot/integrate_hardware#using-your-own-lerobot-devices-) to be automatically detected by a LeRobot installation in the same Python environment.
 
 
@@ -106,14 +109,13 @@ lerobot-record \
 ```
 </details>
 
-## URDF (v0.2)
+## URDF
 
 <p align="center">
-    <img src="https://github.com/andreaskoepf/trlc-dk1-follower-urdf/blob/main/assets/dk1_vsual_right.png">
+    <img src="media/follower_urdf.png">
 </p>
 
-A high-quality URDF file was developed by community member Andreas Köpf:
-[andreaskoepf/trlc-dk1-follower-urdf](https://github.com/andreaskoepf/trlc-dk1-follower-urdf)
+The follower arm URDF with visual (GLB) and collision (STL) meshes is available in [`urdf/follower/`](urdf/follower/).
 
 ## Acknowledgements
 
