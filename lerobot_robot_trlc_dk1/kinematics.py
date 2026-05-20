@@ -6,6 +6,20 @@ from lerobot.model.kinematics import RobotKinematics
 
 
 class DK1RobotKinematics(RobotKinematics):
+    def __init__(
+        self,
+        urdf_path: str,
+        target_frame_name: str,
+        joint_names: list[str] | None = None,
+        *,
+        kinetic_reg: float | None = 1e-4,
+        solver_dt: float = 1 / 30,
+    ):
+        super().__init__(urdf_path, target_frame_name, joint_names)
+        self.solver.dt = solver_dt
+        if kinetic_reg is not None:
+            self.solver.add_kinetic_energy_regularization_task(kinetic_reg)
+
     def forward_kinematics(self, joint_pos_rad: np.ndarray) -> np.ndarray:
         q = np.asarray(joint_pos_rad, dtype=float)
         n = len(self.joint_names)

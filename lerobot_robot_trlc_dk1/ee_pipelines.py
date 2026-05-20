@@ -31,8 +31,12 @@ EE_BOUNDS = {"min": [-1.0, -1.0, -1.0], "max": [1.0, 1.0, 1.0]}
 MAX_EE_STEP_M = 0.10
 
 
-def make_dk1_kinematics() -> DK1RobotKinematics:
-    return DK1RobotKinematics(URDF_PATH, TARGET_FRAME, JOINT_NAMES)
+def make_dk1_kinematics(
+    *, kinetic_reg: float | None = 1e-4, solver_dt: float = 1 / 30
+) -> DK1RobotKinematics:
+    return DK1RobotKinematics(
+        URDF_PATH, TARGET_FRAME, JOINT_NAMES, kinetic_reg=kinetic_reg, solver_dt=solver_dt
+    )
 
 
 def _action_only_from_tuple(action_observation: tuple[Any, Any]) -> Any:
