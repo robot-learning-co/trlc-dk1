@@ -1,12 +1,4 @@
-"""DK1 kinematics shim — radian I/O over LeRobot's placo-backed RobotKinematics.
-
-LeRobot's `RobotKinematics` assumes joint angles are in **degrees** on both input
-and output. DK1's DM-series follower motors and the Dynamixel leader both report
-positions in **radians**, so this subclass overrides FK and IK to skip the
-deg↔rad conversions. Defaults otherwise match upstream (see `inverse_kinematics`).
-"""
-
-from __future__ import annotations
+"""DK1 kinematics shim — radian I/O over LeRobot's placo-backed RobotKinematics."""
 
 import numpy as np
 
@@ -14,15 +6,11 @@ from lerobot.model.kinematics import RobotKinematics
 
 
 class DK1RobotKinematics(RobotKinematics):
-    """placo-backed FK/IK for DK1 with radian I/O instead of degrees."""
-
     def forward_kinematics(self, joint_pos_rad: np.ndarray) -> np.ndarray:
         q = np.asarray(joint_pos_rad, dtype=float)
         n = len(self.joint_names)
         if q.size < n:
-            raise ValueError(
-                f"forward_kinematics: need at least {n} joint angles, got {q.size}"
-            )
+            raise ValueError(f"forward_kinematics: need at least {n} joint angles, got {q.size}")
         q = q[:n]
         for name, val in zip(self.joint_names, q):
             self.robot.set_joint(name, float(val))
@@ -57,9 +45,8 @@ class DK1RobotKinematics(RobotKinematics):
             [self.robot.get_joint(name) for name in self.joint_names], dtype=float
         )
 
-        # Preserve any trailing entries (e.g. gripper) the caller passed in.
-        if current.size > len(self.joint_names):
+        if current.size > n:
             result = current.copy()
-            result[: len(self.joint_names)] = q_out
+            result[:n] = q_out
             return result
         return q_out

@@ -1,14 +1,8 @@
 """EE-space dataset recording for DK1.
 
-Thin wrapper around `lerobot.scripts.lerobot_record.record` that installs the
-EE pipelines (FK on leader joints and follower observation, IK on action) so
-the resulting dataset stores cartesian columns:
-
-    observation.state.ee.{x,y,z,wx,wy,wz,gripper_pos}
-    action.ee.{x,y,z,wx,wy,wz,gripper_pos}
-
-All CLI flags supported by `lerobot-record` work here too — `@parser.wrap()`
-re-exposes the same `RecordConfig`. Example invocation:
+Wraps `lerobot-record` with FK on leader joints + follower observation and IK
+on the action, so the dataset stores cartesian columns. All `lerobot-record`
+CLI flags work here.
 
     python examples/ee_record.py \\
         --robot.type=dk1_follower --robot.port=/dev/ttyACM1 \\
@@ -20,9 +14,6 @@ re-exposes the same `RecordConfig`. Example invocation:
         --dataset.episode_time_s=30 \\
         --dataset.reset_time_s=30 \\
         --dataset.push_to_hub=false
-
-For policy-driven recording (the `--policy.path=...` case) use ee_rollout.py
-instead — `lerobot-record` is teleop-only.
 """
 
 from lerobot.configs import parser
@@ -38,7 +29,6 @@ from lerobot_robot_trlc_dk1.ee_pipelines import (
 
 @parser.wrap()
 def main(cfg: RecordConfig) -> None:
-    # Leader and follower share the follower URDF (kinematic twins, Option A).
     follower_kin = make_dk1_kinematics()
     leader_kin = make_dk1_kinematics()
 

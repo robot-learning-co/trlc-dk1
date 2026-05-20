@@ -1,20 +1,7 @@
 """EE-space policy rollout for DK1.
 
-Replays the body of `lerobot.scripts.lerobot_rollout.rollout` with our EE
-pipelines wired into `build_rollout_context`. The stock `rollout()` calls
-`build_rollout_context(cfg, shutdown_event)` with no processor kwargs, which
-defaults to identity pipelines — that would feed the policy joint-space
-observations and try to send its EE-space outputs straight to the robot. Both
-shapes wrong.
-
-`teleop_action_processor` is also required even though there's no teleop in
-non-DAgger rollout: `build_rollout_context` runs its `transform_features` to
-derive the policy/dataset action names (see `lerobot/rollout/context.py:288`).
-Without it, action names default to `joint_*.pos` and the IK step downstream
-fails looking for `ee.x`/`ee.y`/...
-
-Re-exposes the standard `RolloutConfig` via `@parser.wrap()`, so all CLI flags
-supported by `lerobot-rollout` work here. Example:
+Replays `lerobot-rollout`'s body with EE pipelines wired into
+`build_rollout_context`. All `lerobot-rollout` CLI flags work here.
 
     python examples/ee_rollout.py \\
         --robot.type=dk1_follower --robot.port=/dev/ttyACM1 \\
@@ -29,9 +16,7 @@ supported by `lerobot-rollout` work here. Example:
 
 import logging
 
-# Side-effect imports: register camera configs with draccus. The stock
-# `lerobot.scripts.lerobot_rollout` does the same; we bypass that script, so
-# without these `--robot.cameras="{... type: opencv ...}"` fails to parse.
+# Side-effect imports: register camera configs with draccus, as lerobot_rollout does.
 from lerobot.cameras.opencv import OpenCVCameraConfig  # noqa: F401
 from lerobot.cameras.realsense import RealSenseCameraConfig  # noqa: F401
 from lerobot.cameras.zmq import ZMQCameraConfig  # noqa: F401
@@ -57,19 +42,14 @@ def main(cfg: RolloutConfig) -> None:
     init_logging()
 
     if cfg.display_data:
-        logger.info("Initializing Rerun visualization")
         init_rerun(session_name="dk1_ee_rollout", ip=cfg.display_ip, port=cfg.display_port)
 
     follower_kin = make_dk1_kinematics()
     leader_kin = make_dk1_kinematics()
 
-    # Re-seed IK from current joints each tick: policy can produce larger jumps
-    # than leader-driven teleop, so the actual robot state is a safer seed than
-    # the previous IK solution.
     signal_handler = ProcessSignalHandler(use_threads=True, display_pid=False)
     shutdown_event = signal_handler.shutdown_event
 
-    logger.info("Building rollout context with EE pipelines...")
     ctx = build_rollout_context(
         cfg,
         shutdown_event,
@@ -81,24 +61,17 @@ def main(cfg: RolloutConfig) -> None:
     )
 
     strategy = create_strategy(cfg.strategy)
-    logger.info("Rollout strategy: %s", cfg.strategy.type)
-    logger.info(
-        "Robot: %s | FPS: %.0f | Duration: %s",
-        cfg.robot.type if cfg.robot else "?",
-        cfg.fps,
-        f"{cfg.duration}s" if cfg.duration > 0 else "infinite",
-    )
+    logger.info("Rollout strategy: %s | FPS: %.0f | Duration: %s",
+                cfg.strategy.type, cfg.fps,
+                f"{cfg.duration}s" if cfg.duration > 0 else "infinite")
 
     try:
         strategy.setup(ctx)
-        logger.info("Rollout setup complete, starting rollout...")
         strategy.run(ctx)
     except KeyboardInterrupt:
         logger.info("Interrupted by user")
     finally:
         strategy.teardown(ctx)
-
-    logger.info("Rollout finished")
 
 
 if __name__ == "__main__":
