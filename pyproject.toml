@@ -10,7 +10,7 @@ dependencies = [
   "numpy>=2.0.1",
   "pyserial>=3.5",
   "dynamixel-sdk>=3.7.31",
-  "lerobot[dynamixel,viz]>= 0.5.1",
+  "lerobot[dynamixel,viz,kinematics]>= 0.5.1",
   "mujoco>=3.0.0",
 ]
 
