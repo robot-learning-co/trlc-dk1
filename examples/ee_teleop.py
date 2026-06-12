@@ -31,7 +31,7 @@ def main(cfg: TeleoperateConfig) -> None:
     leader_kin = make_dk1_kinematics()
 
     leader_to_ee = make_leader_joints_to_ee_pipeline(leader_kin, tuple_input=False)
-    ee_to_follower = make_ee_to_follower_joints_pipeline(follower_kin)
+    ee_to_follower = make_ee_to_follower_joints_pipeline(follower_kin, initial_guess_current_joints=True)
 
     leader.connect()
     follower.connect()

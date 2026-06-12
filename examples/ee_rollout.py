@@ -6,9 +6,8 @@ Replays `lerobot-rollout`'s body with EE pipelines wired into
     python examples/ee_rollout.py \\
         --robot.type=dk1_follower --robot.port=/dev/ttyACM1 \\
         --robot.cameras="{ context: {type: opencv, index_or_path: 0, width: 640, height: 360, fps: 30, rotation: 180} }" \\
-        --policy.path=outputs/train/dk1-pick-cube-act-ee/checkpoints/020000/pretrained_model \\
-        --policy.device=mps \\
-        --policy.temporal_ensemble_coeff=0.01 \\
+        --policy.path=outputs/train/dk1-pick-cube-diffusion-ee/checkpoints/last/pretrained_model \\
+        --device=cuda \\
         --fps=30 \\
         --duration=300 \\
         --task="pick up the cube and place it in the bin"
@@ -57,7 +56,7 @@ def main(cfg: RolloutConfig) -> None:
         shutdown_event,
         teleop_action_processor=make_leader_joints_to_ee_pipeline(leader_kin, tuple_input=True),
         robot_action_processor=make_ee_to_follower_joints_pipeline(
-            follower_kin, safety=False
+            follower_kin, safety=True, initial_guess_current_joints=True
         ),
         robot_observation_processor=make_follower_obs_to_ee_pipeline(follower_kin),
     )

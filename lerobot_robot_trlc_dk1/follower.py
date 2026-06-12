@@ -56,6 +56,7 @@ class DK1FollowerConfig(RobotConfig):
     max_gripper_torque: float = 1.0         # Nm
     disable_torque_on_disconnect: bool = False
     cameras: dict[str, CameraConfig] = field(default_factory=dict)
+    camera_read_timeout_ms: int = 1000
     # POS_VEL mode only
     joint_velocity_scaling: float = 0.2
 
@@ -235,7 +236,7 @@ class DK1Follower(Robot):
             obs = self._get_observation_pos_vel()
 
         for cam_key, cam in self.cameras.items():
-            obs[cam_key] = cam.async_read()
+            obs[cam_key] = cam.async_read(timeout_ms=self.config.camera_read_timeout_ms)
 
         return obs
 

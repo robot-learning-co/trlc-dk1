@@ -36,7 +36,11 @@ def main(cfg: RecordConfig) -> None:
         cfg,
         teleop_action_processor=make_leader_joints_to_ee_pipeline(leader_kin, tuple_input=True),
         robot_observation_processor=make_follower_obs_to_ee_pipeline(follower_kin),
-        robot_action_processor=make_ee_to_follower_joints_pipeline(follower_kin),
+        # initial_guess_current_joints=True matches how all datasets so far were
+        # collected — keep it pinned so recording and rollout stay consistent.
+        robot_action_processor=make_ee_to_follower_joints_pipeline(
+            follower_kin, initial_guess_current_joints=True
+        ),
     )
 
 

@@ -120,6 +120,7 @@ class DK1Robot:
         Args:
             q_des: Target positions in radians, shape (6,).
         """
+        self._motor_chain.raise_if_failed()
         if q_des.shape != (6,):
             raise ValueError(f"Expected shape (6,), got {q_des.shape}")
         with self._cmd_lock:
@@ -135,6 +136,7 @@ class DK1Robot:
         Args:
             normalized_pos: 0.0 = fully open, 1.0 = fully closed.
         """
+        self._motor_chain.raise_if_failed()
         normalized_pos = float(np.clip(normalized_pos, 0.0, 1.0))
         with self._cmd_lock:
             self._gripper_des = normalized_pos
@@ -150,6 +152,7 @@ class DK1Robot:
         Returns:
             dict with keys 'pos', 'vel', 'torque', each shape (6,).
         """
+        self._motor_chain.raise_if_failed()
         pos, vel, torque = self._motor_chain.get_state()
         return {
             "pos": pos[:6].copy(),
@@ -159,6 +162,7 @@ class DK1Robot:
 
     def get_gripper_state(self) -> dict[str, float]:
         """Return normalised gripper position and torque."""
+        self._motor_chain.raise_if_failed()
         pos, _, torque = self._motor_chain.get_state()
         cfg = self._config
         # Linear map open->0, closed->1.  np.interp can't be used here because it
