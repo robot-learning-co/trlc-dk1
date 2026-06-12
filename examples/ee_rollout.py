@@ -32,6 +32,8 @@ from lerobot_robot_trlc_dk1.ee_pipelines import (
     make_follower_obs_to_ee_pipeline,
     make_leader_joints_to_ee_pipeline,
 )
+# Side-effect import: registers --inference.type=sync_relative for relative-action policies.
+from lerobot_robot_trlc_dk1 import sync_relative_inference  # noqa: F401
 
 
 logger = logging.getLogger(__name__)
@@ -55,7 +57,7 @@ def main(cfg: RolloutConfig) -> None:
         shutdown_event,
         teleop_action_processor=make_leader_joints_to_ee_pipeline(leader_kin, tuple_input=True),
         robot_action_processor=make_ee_to_follower_joints_pipeline(
-            follower_kin, safety=False, initial_guess_current_joints=True
+            follower_kin, safety=False
         ),
         robot_observation_processor=make_follower_obs_to_ee_pipeline(follower_kin),
     )
