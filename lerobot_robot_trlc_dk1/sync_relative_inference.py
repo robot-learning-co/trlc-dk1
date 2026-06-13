@@ -12,10 +12,10 @@ This engine avoids that drift by:
    when the local FIFO is empty.
 2. Postprocessing **all** ``n_action_steps`` actions in the chunk in one
    go, while the relative step's state cache still reflects the
-   chunk-generation observation. Each chunk's 32 absolute actions are
-   computed against the same reference state — exactly the UMI
-   "relative trajectory" semantics that the model was trained for.
-3. Serving the 32 absolute actions one-per-tick from a local FIFO.
+   chunk-generation observation. Every action in the chunk is therefore
+   converted to absolute against the same reference state — exactly the
+   UMI "relative trajectory" semantics that the model was trained for.
+3. Serving those absolute actions one-per-tick from a local FIFO.
 4. Still running the preprocessor and diffusion observation-queue update
    every tick so the *next* chunk-generation reads a fresh
    ``n_obs_steps`` window. The resulting per-tick state-cache updates
@@ -27,6 +27,19 @@ Importing this module is enough to (a) register
 ``--inference.type=sync_relative`` with draccus and (b) monkey-patch
 ``lerobot.rollout.inference.factory.create_inference_engine`` to know how
 to build this engine.
+
+Usage — import for the side-effect, then select it on the rollout CLI::
+
+    from lerobot_robot_trlc_dk1 import sync_relative_inference  # noqa: F401
+
+    # python examples/ee_rollout.py \\
+    #     --policy.path=<relative-action checkpoint> \\
+    #     --inference.type=sync_relative \\
+    #     --device=cuda --fps=30 --duration=300 --task="..."
+
+The engine requires a ``DiffusionPolicy``-style policy (one exposing
+``_queues`` and ``predict_action_chunk``); other policy types are rejected
+at construction.
 """
 
 from __future__ import annotations
@@ -130,11 +143,11 @@ class SyncRelativeInferenceEngine(InferenceEngine):
 
         # Cheap replay: while the FIFO still holds more than the last
         # (n_obs_steps - 1) precomputed actions, serve them directly — no
-        # preprocessing, no model, no queue update. Running the full
-        # (3-camera) preprocessor on *every* tick adds dispatch jitter, so
-        # only the re-plan neighbourhood pays that cost; serving stays fast
-        # and uniform between chunks. Served actions are unchanged
-        # (precomputed at refill).
+        # preprocessing, no model, no queue update. Running the full image
+        # preprocessor on *every* tick adds dispatch jitter (more so the more
+        # cameras the robot has), so only the re-plan neighbourhood pays that
+        # cost; serving stays fast and uniform between chunks. Served actions
+        # are unchanged (precomputed at refill).
         n_obs = int(getattr(self._policy.config, "n_obs_steps", 1) or 1)
         if len(self._absolute_chunk) > max(n_obs - 1, 0):
             return self._pop_ordered()
