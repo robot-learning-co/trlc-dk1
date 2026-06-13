@@ -1,11 +1,12 @@
-"""A sync inference engine that *does* work with relative-action policies.
+"""A sync inference engine for relative-action policies.
 
-Upstream ``SyncInferenceEngine`` rejects relative-action policies because
-its per-tick flow refreshes ``RelativeActionsProcessorStep._last_state``
-every tick, so cached chunk actions popped on later ticks get re-anchored
-to the *current* robot state — absolute targets drift through the chunk.
+A relative-action policy generates a chunk of actions relative to a single
+reference state, captured in ``RelativeActionsProcessorStep._last_state``.
+If that reference is refreshed every control tick, cached chunk actions
+popped on later ticks get re-anchored to the *current* robot state, so the
+resulting absolute targets drift through the chunk.
 
-This engine sidesteps the issue by:
+This engine avoids that drift by:
 
 1. Calling ``policy.predict_action_chunk(batch)`` (not ``select_action``)
    when the local FIFO is empty.
@@ -25,7 +26,7 @@ This engine sidesteps the issue by:
 Importing this module is enough to (a) register
 ``--inference.type=sync_relative`` with draccus and (b) monkey-patch
 ``lerobot.rollout.inference.factory.create_inference_engine`` to know how
-to build the new engine.
+to build this engine.
 """
 
 from __future__ import annotations
@@ -67,7 +68,7 @@ class SyncRelativeInferenceConfig(InferenceEngineConfig):
 
 
 class SyncRelativeInferenceEngine(InferenceEngine):
-    """Like ``SyncInferenceEngine`` but safe for relative-action policies."""
+    """Synchronous inference engine that is safe for relative-action policies."""
 
     def __init__(
         self,
@@ -127,6 +128,20 @@ class SyncRelativeInferenceEngine(InferenceEngine):
         if obs_frame is None:
             return None
 
+        # Cheap replay: while the FIFO still holds more than the last
+        # (n_obs_steps - 1) precomputed actions, serve them directly — no
+        # preprocessing, no model, no queue update. Running the full
+        # (3-camera) preprocessor on *every* tick adds dispatch jitter, so
+        # only the re-plan neighbourhood pays that cost; serving stays fast
+        # and uniform between chunks. Served actions are unchanged
+        # (precomputed at refill).
+        n_obs = int(getattr(self._policy.config, "n_obs_steps", 1) or 1)
+        if len(self._absolute_chunk) > max(n_obs - 1, 0):
+            return self._pop_ordered()
+
+        # Re-plan neighbourhood: refresh the policy's obs queue (and the
+        # relative step's _last_state) so that at generation the n_obs_steps
+        # history is made of consecutive control ticks, exactly as in training.
         observation = copy(obs_frame)
         autocast_ctx = (
             torch.autocast(device_type=self._device.type)
@@ -137,21 +152,19 @@ class SyncRelativeInferenceEngine(InferenceEngine):
             observation = prepare_observation_for_inference(
                 observation, self._device, self._task, self._robot_type
             )
-            # Always run the preprocessor and policy queue update: this keeps
-            # diffusion's internal obs queue warm with the latest observation
-            # and refreshes the relative step's _last_state to the current
-            # state. The latter only *matters* on chunk-generation ticks —
-            # the postprocessor reads it immediately afterward.
             observation = self._preprocessor(observation)
             batch = self._update_policy_obs_queue(observation)
 
-            if not self._absolute_chunk:
-                self._refill_chunk(batch)
+            if self._absolute_chunk:
+                return self._pop_ordered()
 
-            absolute_action = self._absolute_chunk.popleft()
+            self._refill_chunk(batch)
 
-        action_tensor = absolute_action.squeeze(0).cpu()
-        action_dict = make_robot_action(action_tensor, self._dataset_features)
+        return self._pop_ordered()
+
+    def _pop_ordered(self) -> torch.Tensor:
+        absolute_action = self._absolute_chunk.popleft().squeeze(0).cpu()
+        action_dict = make_robot_action(absolute_action, self._dataset_features)
         return torch.tensor([action_dict[k] for k in self._ordered_action_keys])
 
     # ----- helpers ------------------------------------------------------
@@ -191,10 +204,10 @@ class SyncRelativeInferenceEngine(InferenceEngine):
 
 
 # ---------------------------------------------------------------------------
-# Wire the new engine into ``create_inference_engine`` so build_rollout_context
-# can instantiate it. Upstream ``create_inference_engine`` is a hard-coded
-# if/elif over engine config classes, so we monkey-patch a dispatch shim that
-# handles our subclass first and falls back to the original otherwise.
+# Wire this engine into ``create_inference_engine`` so build_rollout_context
+# can instantiate it. ``create_inference_engine`` dispatches with a hard-coded
+# if/elif over engine config classes, so we monkey-patch a shim that handles
+# our subclass first and falls back to the original otherwise.
 # ---------------------------------------------------------------------------
 
 _original_create_inference_engine = _engine_factory.create_inference_engine
