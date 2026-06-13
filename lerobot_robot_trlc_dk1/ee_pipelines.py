@@ -66,7 +66,7 @@ def make_ee_to_follower_joints_pipeline(
     kinematics: DK1RobotKinematics,
     *,
     safety: bool = True,
-    initial_guess_current_joints: bool = False,
+    initial_guess_current_joints: bool = True,
 ) -> RobotProcessorPipeline:
     steps: list[Any] = []
     if safety:
