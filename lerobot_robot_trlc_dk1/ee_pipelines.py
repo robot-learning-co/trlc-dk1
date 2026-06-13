@@ -32,10 +32,22 @@ MAX_EE_STEP_M = 0.10
 
 
 def make_dk1_kinematics(
-    *, kinetic_reg: float | None = 1e-4, solver_dt: float = 1 / 30
+    *,
+    kinetic_reg: float | None = 1e-4,
+    solver_dt: float = 1 / 30,
+    ik_max_iters: int = 20,
+    ik_pos_tol: float = 1e-3,
+    ik_ori_tol: float = 1e-2,
 ) -> DK1RobotKinematics:
     return DK1RobotKinematics(
-        URDF_PATH, TARGET_FRAME, JOINT_NAMES, kinetic_reg=kinetic_reg, solver_dt=solver_dt
+        URDF_PATH,
+        TARGET_FRAME,
+        JOINT_NAMES,
+        kinetic_reg=kinetic_reg,
+        solver_dt=solver_dt,
+        ik_max_iters=ik_max_iters,
+        ik_pos_tol=ik_pos_tol,
+        ik_ori_tol=ik_ori_tol,
     )
 
 
@@ -67,7 +79,9 @@ def make_ee_to_follower_joints_pipeline(
     *,
     safety: bool = True,
     initial_guess_current_joints: bool = True,
+    converge_ik: bool = False,
 ) -> RobotProcessorPipeline:
+    kinematics.converge_ik = converge_ik
     steps: list[Any] = []
     if safety:
         steps.append(EEBoundsAndSafety(end_effector_bounds=EE_BOUNDS, max_ee_step_m=MAX_EE_STEP_M))

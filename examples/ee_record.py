@@ -37,7 +37,7 @@ def main(cfg: RecordConfig) -> None:
         teleop_action_processor=make_leader_joints_to_ee_pipeline(leader_kin, tuple_input=True),
         robot_observation_processor=make_follower_obs_to_ee_pipeline(follower_kin),
         robot_action_processor=make_ee_to_follower_joints_pipeline(
-            follower_kin
+            follower_kin, converge_ik=False
         ),
     )
 

@@ -14,11 +14,19 @@ class DK1RobotKinematics(RobotKinematics):
         *,
         kinetic_reg: float | None = 1e-4,
         solver_dt: float = 1 / 30,
+        converge_ik: bool = False,
+        ik_max_iters: int = 20,
+        ik_pos_tol: float = 1e-3,
+        ik_ori_tol: float = 1e-2,
     ):
         super().__init__(urdf_path, target_frame_name, joint_names)
         self.solver.dt = solver_dt
         if kinetic_reg is not None:
             self.solver.add_kinetic_energy_regularization_task(kinetic_reg)
+        self.converge_ik = converge_ik
+        self.ik_max_iters = ik_max_iters
+        self.ik_pos_tol = ik_pos_tol
+        self.ik_ori_tol = ik_ori_tol
 
     def forward_kinematics(self, joint_pos_rad: np.ndarray) -> np.ndarray:
         q = np.asarray(joint_pos_rad, dtype=float)
@@ -52,8 +60,19 @@ class DK1RobotKinematics(RobotKinematics):
         self.tip_frame.configure(
             self.target_frame_name, "soft", position_weight, orientation_weight
         )
-        self.solver.solve(True)
-        self.robot.update_kinematics()
+
+        max_iters = self.ik_max_iters if self.converge_ik else 1
+        for _ in range(max_iters):
+            self.solver.solve(True)
+            self.robot.update_kinematics()
+            if not self.converge_ik:
+                break
+            t_now = self.robot.get_T_world_frame(self.target_frame_name)
+            pos_err = float(np.linalg.norm(t_now[:3, 3] - desired_ee_pose[:3, 3]))
+            r_err = t_now[:3, :3].T @ desired_ee_pose[:3, :3]
+            ori_err = float(np.arccos(np.clip((np.trace(r_err) - 1.0) / 2.0, -1.0, 1.0)))
+            if pos_err <= self.ik_pos_tol and ori_err <= self.ik_ori_tol:
+                break
 
         q_out = np.array(
             [self.robot.get_joint(name) for name in self.joint_names], dtype=float
