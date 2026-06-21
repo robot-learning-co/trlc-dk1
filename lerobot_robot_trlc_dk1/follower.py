@@ -56,6 +56,7 @@ class DK1FollowerConfig(RobotConfig):
     max_gripper_torque: float = 1.0         # Nm
     disable_torque_on_disconnect: bool = False
     cameras: dict[str, CameraConfig] = field(default_factory=dict)
+    camera_read_timeout_ms: int = 1000
     # POS_VEL mode only
     joint_velocity_scaling: float = 0.2
 
@@ -130,17 +131,22 @@ class DK1Follower(Robot):
         if self.is_connected:
             raise DeviceAlreadyConnectedError(f"{self} already connected")
 
-        if self.config.control_mode == "impedance":
-            from trlc_dk1_control import DK1Robot, DK1_DEFAULT_CONFIG
-            cfg = DK1_DEFAULT_CONFIG(self.config.port)
-            cfg.max_gripper_torque_nm = self.config.max_gripper_torque
-            self._robot = DK1Robot(cfg)
-            self._robot.connect()
-        else:
-            self._connect_pos_vel()
+        try:
+            if self.config.control_mode == "impedance":
+                from trlc_dk1_control import DK1Robot, DK1_DEFAULT_CONFIG
+                cfg = DK1_DEFAULT_CONFIG(self.config.port)
+                cfg.max_gripper_torque_nm = self.config.max_gripper_torque
+                self._robot = DK1Robot(cfg)
+                self._robot.connect()
+            else:
+                self._connect_pos_vel()
 
-        for cam in self.cameras.values():
-            cam.connect()
+            for cam in self.cameras.values():
+                cam.connect()
+        except Exception:
+            logger.exception("Failed to connect %s; cleaning up connected resources.", self)
+            self._disconnect_connected_parts()
+            raise
 
         logger.info(f"{self} connected (mode={self.config.control_mode}).")
 
@@ -230,7 +236,7 @@ class DK1Follower(Robot):
             obs = self._get_observation_pos_vel()
 
         for cam_key, cam in self.cameras.items():
-            obs[cam_key] = cam.async_read()
+            obs[cam_key] = cam.async_read(timeout_ms=self.config.camera_read_timeout_ms)
 
         return obs
 
@@ -303,21 +309,36 @@ class DK1Follower(Robot):
         if not self.is_connected:
             raise DeviceNotConnectedError(f"{self} is not connected.")
 
+        self._disconnect_connected_parts()
+
+        logger.info(f"{self} disconnected.")
+
+    def _disconnect_connected_parts(self) -> None:
+        for cam in self.cameras.values():
+            if cam.is_connected:
+                try:
+                    cam.disconnect()
+                except Exception:
+                    logger.exception("Failed to disconnect camera %s during cleanup.", cam)
+
         if self.config.control_mode == "impedance":
-            self._robot.disconnect()
-            self._robot = None
+            if self._robot is not None:
+                try:
+                    self._robot.disconnect()
+                except Exception:
+                    logger.exception("Failed to disconnect impedance robot during cleanup.")
+                self._robot = None
         else:
-            if self.config.disable_torque_on_disconnect:
-                for motor in self._motors.values():
-                    self._control.disable(motor)
-            else:
-                self._serial_device.close()
+            if self._bus_connected:
+                try:
+                    if self.config.disable_torque_on_disconnect:
+                        for motor in self._motors.values():
+                            self._control.disable(motor)
+                    else:
+                        self._serial_device.close()
+                except Exception:
+                    logger.exception("Failed to disconnect POS_VEL bus during cleanup.")
             self._bus_connected = False
             self._motors = None
             self._control = None
             self._serial_device = None
-
-        for cam in self.cameras.values():
-            cam.disconnect()
-
-        logger.info(f"{self} disconnected.")

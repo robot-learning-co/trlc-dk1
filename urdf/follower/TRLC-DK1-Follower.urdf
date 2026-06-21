@@ -3,16 +3,16 @@
   name="TRLC-DK1-Follower">
   <!--
   Joint limits:
-    - joint1: -2.094 to 2.094 (±120°)
-    - joint2: -0.08 to 3.14
-    - joint3: -0.08 to 4.71  (DM4340)
-    - joint4: -1.95 to 1.57 (-111.7° to +90°)
-    - joint5: -1.57 to 1.57 (±90°)
-    - joint6: -3.14 to 3.14 (±180°)
+    - joint_1: -2.094 to 2.094 (±120°)
+    - joint_2: -0.08 to 3.14
+    - joint_3: -0.08 to 4.71  (DM4340)
+    - joint_4: -1.95 to 1.57 (-111.7° to +90°)
+    - joint_5: -1.57 to 1.57 (±90°)
+    - joint_6: -2.094 to 2.094 (±120°)
   
   Joint motors:
-    - joint{1,2,3}: DAMIAO Motor DM4340, 52.5 rpm, 5.49 rad/s
-    - joint{4,5,6}: DAMIAO Motor DM4310, 200 rpm, 20.94 rad/s
+    - joint_{1,2,3}: DAMIAO Motor DM4340, 52.5 rpm, 5.49 rad/s
+    - joint_{4,5,6}: DAMIAO Motor DM4310, 200 rpm, 20.94 rad/s
     - gripper DAMIAO Motor DM4310, 0.00875m spur gear radius, 0.183225 m/s, 114N
   -->
   <link
@@ -68,7 +68,7 @@
     </collision>
   </link>
   <joint
-    name="joint1"
+    name="joint_1"
     type="revolute">
     <origin
       xyz="0 0 0.0615"
@@ -112,7 +112,7 @@
     </collision>
   </link>
   <joint
-    name="joint2"
+    name="joint_2"
     type="revolute">
     <origin
       xyz="0.02 0.0 0.0385"
@@ -156,7 +156,7 @@
     </collision>
   </link>
   <joint
-    name="joint3"
+    name="joint_3"
     type="revolute">
     <origin
       xyz="-0.264 0 0"
@@ -200,7 +200,7 @@
     </collision>
   </link>
   <joint
-    name="joint4"
+    name="joint_4"
     type="revolute">
     <origin
       xyz="0.244004 0 0.059971"
@@ -244,7 +244,7 @@
     </collision>
   </link>
   <joint
-    name="joint5"
+    name="joint_5"
     type="revolute">
     <origin
       xyz="0.061868 0 0.0425"
@@ -288,7 +288,7 @@
     </collision>
   </link>
   <joint
-    name="joint6"
+    name="joint_6"
     type="revolute">
     <origin
       xyz="0.032 0 -0.0425"

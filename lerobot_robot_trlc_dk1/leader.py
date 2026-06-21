@@ -34,6 +34,8 @@ class DK1LeaderConfig(TeleoperatorConfig):
     port: str
     gripper_open_pos: int = 2280
     gripper_closed_pos: int = 1670
+    action_read_retries: int = 3
+    action_read_retry_sleep_s: float = 0.01
     
     
 class DK1Leader(Teleoperator):
@@ -107,7 +109,26 @@ class DK1Leader(Teleoperator):
 
         start = time.perf_counter()
         
-        action = self.bus.sync_read(normalize=False, data_name="Present_Position")
+        last_error = None
+        for attempt in range(self.config.action_read_retries):
+            try:
+                action = self.bus.sync_read(normalize=False, data_name="Present_Position")
+                break
+            except ConnectionError as exc:
+                last_error = exc
+                if attempt + 1 >= self.config.action_read_retries:
+                    raise
+                logger.warning(
+                    "%s failed to read leader action (%s/%s): %s",
+                    self,
+                    attempt + 1,
+                    self.config.action_read_retries,
+                    exc,
+                )
+                time.sleep(self.config.action_read_retry_sleep_s)
+        else:
+            raise last_error
+
         action = {f"{motor}.pos": (val/4096*2*np.pi-np.pi) if motor != "gripper" else val for motor, val in action.items()}
         
         # # Normalize gripper position between 1 (closed) and 0 (open)

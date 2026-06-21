@@ -84,6 +84,7 @@ class DK1MotorChain:
 
         self._running = False
         self._thread: threading.Thread | None = None
+        self._thread_error: BaseException | None = None
 
         # Performance tracking
         self._loop_count = 0
@@ -164,7 +165,12 @@ class DK1MotorChain:
 
     @property
     def is_running(self) -> bool:
-        return self._running
+        return self._running and self._thread_error is None
+
+    def raise_if_failed(self) -> None:
+        """Raise if the background motor thread has failed."""
+        if self._thread_error is not None:
+            raise RuntimeError("DK1MotorChain motor thread failed") from self._thread_error
 
     # -------------------------------------------------------------------------
     # Setup
@@ -255,79 +261,84 @@ class DK1MotorChain:
         period = 1.0 / self._config.motor_thread_hz
         arm_names = [f"joint_{i}" for i in range(1, 7)]
 
-        while self._running:
-            t_start = time.monotonic()
+        try:
+            while self._running:
+                t_start = time.monotonic()
 
-            # Snapshot commands under lock
-            with self._lock:
-                kp = self._arm_kp.copy()
-                kd = self._arm_kd.copy()
-                q_des = self._arm_q_des.copy()
-                dq_des = self._arm_dq_des.copy()
-                tau_ff = self._arm_tau_ff.copy()
-                g_q_des = self._gripper_q_des
-                g_vel = self._gripper_vel
-                g_i_des = self._gripper_i_des
+                # Snapshot commands under lock
+                with self._lock:
+                    kp = self._arm_kp.copy()
+                    kd = self._arm_kd.copy()
+                    q_des = self._arm_q_des.copy()
+                    dq_des = self._arm_dq_des.copy()
+                    tau_ff = self._arm_tau_ff.copy()
+                    g_q_des = self._gripper_q_des
+                    g_vel = self._gripper_vel
+                    g_i_des = self._gripper_i_des
 
-            # Send MIT commands to arm joints and read feedback
-            for i, name in enumerate(arm_names):
-                motor = self._motors[name]
-                self._control.controlMIT(
-                    motor,
-                    float(kp[i]),
-                    float(kd[i]),
-                    float(q_des[i]),
-                    float(dq_des[i]),
-                    float(tau_ff[i]),
+                # Send MIT commands to arm joints and read feedback
+                for i, name in enumerate(arm_names):
+                    motor = self._motors[name]
+                    self._control.controlMIT(
+                        motor,
+                        float(kp[i]),
+                        float(kd[i]),
+                        float(q_des[i]),
+                        float(dq_des[i]),
+                        float(tau_ff[i]),
+                    )
+
+                # Send EMIT command to gripper
+                self._control.control_pos_force(
+                    self._motors["gripper"],
+                    float(g_q_des),
+                    float(g_vel),
+                    float(g_i_des),
                 )
 
-            # Send EMIT command to gripper
-            self._control.control_pos_force(
-                self._motors["gripper"],
-                float(g_q_des),
-                float(g_vel),
-                float(g_i_des),
-            )
+                # Collect motor state (updated by recv() inside each control call)
+                new_pos = np.empty(7)
+                new_vel = np.empty(7)
+                new_torque = np.empty(7)
+                for i, name in enumerate(arm_names):
+                    m = self._motors[name]
+                    new_pos[i] = m.getPosition()
+                    new_vel[i] = m.getVelocity()
+                    new_torque[i] = m.getTorque()
+                gm = self._motors["gripper"]
+                new_pos[6] = gm.getPosition()
+                new_vel[6] = gm.getVelocity()
+                new_torque[6] = gm.getTorque()
 
-            # Collect motor state (updated by recv() inside each control call)
-            new_pos = np.empty(7)
-            new_vel = np.empty(7)
-            new_torque = np.empty(7)
-            for i, name in enumerate(arm_names):
-                m = self._motors[name]
-                new_pos[i] = m.getPosition()
-                new_vel[i] = m.getVelocity()
-                new_torque[i] = m.getTorque()
-            gm = self._motors["gripper"]
-            new_pos[6] = gm.getPosition()
-            new_vel[6] = gm.getVelocity()
-            new_torque[6] = gm.getTorque()
+                # Update shared state buffer
+                with self._lock:
+                    self._pos = new_pos
+                    self._vel = new_vel
+                    self._torque = new_torque
 
-            # Update shared state buffer
-            with self._lock:
-                self._pos = new_pos
-                self._vel = new_vel
-                self._torque = new_torque
+                # Maintain loop period — sleep most of the time, busywait the tail
+                # for precision (time.sleep has ~1-2 ms granularity on macOS)
+                elapsed = time.monotonic() - t_start
+                sleep_time = period - elapsed
+                if sleep_time > 0.001:
+                    time.sleep(sleep_time - 0.001)
+                while time.monotonic() - t_start < period:
+                    pass
 
-            # Maintain loop period — sleep most of the time, busywait the tail
-            # for precision (time.sleep has ~1-2 ms granularity on macOS)
-            elapsed = time.monotonic() - t_start
-            sleep_time = period - elapsed
-            if sleep_time > 0.001:
-                time.sleep(sleep_time - 0.001)
-            while time.monotonic() - t_start < period:
-                pass
-
-            # Periodic performance print
-            self._loop_count += 1
-            now = time.monotonic()
-            if now - self._last_perf_log >= 5.0:
-                hz = self._loop_count / (now - self._last_perf_log)
-                logger.debug(
-                    "[motor]  %6.1f Hz  (target %.0f Hz)  loop=%.2f ms",
-                    hz,
-                    self._config.motor_thread_hz,
-                    elapsed * 1e3,
-                )
-                self._loop_count = 0
-                self._last_perf_log = now
+                # Periodic performance print
+                self._loop_count += 1
+                now = time.monotonic()
+                if now - self._last_perf_log >= 5.0:
+                    hz = self._loop_count / (now - self._last_perf_log)
+                    logger.debug(
+                        "[motor]  %6.1f Hz  (target %.0f Hz)  loop=%.2f ms",
+                        hz,
+                        self._config.motor_thread_hz,
+                        elapsed * 1e3,
+                    )
+                    self._loop_count = 0
+                    self._last_perf_log = now
+        except BaseException as exc:
+            self._thread_error = exc
+            self._running = False
+            logger.exception("DK1MotorChain motor thread failed")
