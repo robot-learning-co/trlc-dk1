@@ -258,12 +258,21 @@ class DK1Follower(Robot):
         state = self._robot.get_joint_state()
         gripper = self._robot.get_gripper_state()
         obs = {}
+        # Per-joint motor temperature (°C). The DAMIAO MIT reply carries T_MOS (data[6]) + T_ROTOR
+        # (data[7]); the RT layer surfaces them as t_mos/t_rotor arrays. Report the HOTTER of the two
+        # per joint so a monitor gates on the worst case (FR-016). When the RT layer doesn't provide
+        # them the key is simply omitted — a consumer must read that as "unknown" (NaN), never 0 °C.
+        t_mos, t_rotor = state.get("t_mos"), state.get("t_rotor")
         for i, j in enumerate(JOINT_NAMES):
             obs[f"{j}.pos"] = float(state["pos"][i])
             obs[f"{j}.vel"] = float(state["vel"][i])
             obs[f"{j}.torque"] = float(state["torque"][i])
+            if t_mos is not None and t_rotor is not None:
+                obs[f"{j}.temperature"] = float(max(t_mos[i], t_rotor[i]))
         obs["gripper.pos"] = gripper["pos"]
         obs["gripper.torque"] = gripper["torque"]
+        if gripper.get("t_mos") is not None and gripper.get("t_rotor") is not None:
+            obs["gripper.temperature"] = float(max(gripper["t_mos"], gripper["t_rotor"]))
         return obs
 
     def _get_observation_pos_vel(self) -> dict[str, Any]:
