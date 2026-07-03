@@ -44,6 +44,12 @@ class BiDK1FollowerConfig(RobotConfig):
     joint_velocity_scaling: float = 0.2
     max_gripper_torque: float = 1.0 # Nm (/0.00875m spur gear radius = 114N gripper force)
     cameras: dict[str, CameraConfig] = field(default_factory=dict)
+    # DK1RobotConfig attribute overrides (see DK1FollowerConfig.rt_config_overrides).
+    # `rt_config_overrides` applies to BOTH arms; the per-arm dicts win on key conflicts
+    # (needed for per-arm values like the calibrated gravity_q_offset).
+    rt_config_overrides: dict = field(default_factory=dict)
+    left_rt_config_overrides: dict = field(default_factory=dict)
+    right_rt_config_overrides: dict = field(default_factory=dict)
 
 
 class BiDK1Follower(Robot):
@@ -66,6 +72,8 @@ class BiDK1Follower(Robot):
             gravity_comp_scale=self.config.gravity_comp_scale,
             joint_velocity_scaling=self.config.joint_velocity_scaling,
             max_gripper_torque=self.config.max_gripper_torque,
+            rt_config_overrides={**self.config.rt_config_overrides,
+                                 **self.config.left_rt_config_overrides},
         )
         right_arm_config = DK1FollowerConfig(
             port=self.config.right_arm_port,
@@ -74,6 +82,8 @@ class BiDK1Follower(Robot):
             gravity_comp_scale=self.config.gravity_comp_scale,
             joint_velocity_scaling=self.config.joint_velocity_scaling,
             max_gripper_torque=self.config.max_gripper_torque,
+            rt_config_overrides={**self.config.rt_config_overrides,
+                                 **self.config.right_rt_config_overrides},
         )
         
         self.left_arm = DK1Follower(left_arm_config)

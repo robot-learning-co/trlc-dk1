@@ -45,6 +45,32 @@ struct RtLoopConfig {
 
     std::string model_path;  // URDF/XML for gravity comp, empty = disabled
     double gravity_comp_scale = 1.0;
+    // Evaluate the gravity model at q + offset: the motors' hardware zero is not the model
+    // zero (FR-008 calibrated joint offsets, ~1-3 deg on j2/j3). Zeros = old behaviour.
+    std::array<double, 6> gravity_q_offset = {0, 0, 0, 0, 0, 0};
+
+    // FR-018 sag observer. At rest the missing feedforward torque is directly observable as
+    // the position-error torque kp*(slew_target - q); a gated leaky integrator folds it into
+    // tau_ff so the arm settles ON target instead of tau_err/kp away from it.
+    // Update gate: |vel| < sag_vel_eps (near rest) AND |residual| < sag_freeze_residual_nm
+    // (an obstructed/contacting joint shows a LARGE residual — adapting there would push).
+    // The bias is clamped to +-sag_max_nm and leaks to zero over ~1/(leak*loop_hz) seconds
+    // so a stale estimate fades instead of persisting at a new pose.
+    bool sag_observer_enable = false;
+    double sag_lambda = 0.004;            // per-cycle integration gain (~1 s at 250 Hz)
+    double sag_max_nm = 2.5;              // |bias| clamp per joint (Nm)
+    double sag_freeze_residual_nm = 3.0;  // no adaptation when |residual| exceeds this (contact)
+    double sag_vel_eps = 0.05;            // rad/s: adapt only near rest
+    double sag_leak = 2e-5;               // per-cycle bias decay (~200 s at 250 Hz)
+
+    // FR-018 friction dither. A joint stuck short of its target inside the static-friction
+    // deadband (|err| > dither_pos_eps while |vel| < sag_vel_eps) gets a small sinusoidal
+    // tau_ff so it stays in the kinetic regime and creeps onto the target. Amplitudes of 0
+    // (default) disable per joint; keep them well below breakaway (~0.3-0.8 Nm).
+    bool dither_enable = false;
+    std::array<double, 6> dither_amp_nm = {0, 0, 0, 0, 0, 0};
+    double dither_hz = 25.0;
+    double dither_pos_eps = 0.002;        // rad: position error that counts as "stuck"
 
     double command_timeout_s = 0.5;
     int overcurrent_threshold = 20;
@@ -92,6 +118,10 @@ struct JointState {
     // Units per DAMIAO protocol are °C; not yet hardware-verified.
     std::array<uint8_t, 6> t_mos = {};
     std::array<uint8_t, 6> t_rotor = {};
+    // FR-018 telemetry (one cycle stale): kp*(slew_target - q) = the feedforward torque the
+    // model is missing at rest, and the sag observer's current tau_ff correction.
+    std::array<double, 6> sag_residual = {};
+    std::array<double, 6> sag_bias = {};
 };
 
 struct GripperState {
@@ -172,6 +202,8 @@ private:
         // Raw temperature bytes per motor (index 0..5 arm, 6 gripper).
         std::array<uint8_t, 7> t_mos = {};
         std::array<uint8_t, 7> t_rotor = {};
+        std::array<double, 6> sag_residual = {};
+        std::array<double, 6> sag_bias = {};
     };
 
     RtLoopConfig cfg_;
@@ -209,6 +241,11 @@ private:
 
     // Slew rate limiter state (RT thread only)
     std::array<double, 6> slew_target_ = {};
+
+    // FR-018 sag observer / dither state (RT thread only)
+    std::array<double, 6> sag_bias_ = {};
+    std::array<double, 6> sag_residual_ = {};
+    double dither_phase_ = 0.0;
 };
 
 } // namespace trlc

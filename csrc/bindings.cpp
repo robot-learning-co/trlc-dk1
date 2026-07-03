@@ -63,6 +63,15 @@ NB_MODULE(_trlc_dk1_rt, m) {
         .def_rw("limit_buffer", &RtLoopConfig::limit_buffer)
         .def_rw("model_path", &RtLoopConfig::model_path)
         .def_rw("gravity_comp_scale", &RtLoopConfig::gravity_comp_scale)
+        .def_rw("sag_observer_enable", &RtLoopConfig::sag_observer_enable)
+        .def_rw("sag_lambda", &RtLoopConfig::sag_lambda)
+        .def_rw("sag_max_nm", &RtLoopConfig::sag_max_nm)
+        .def_rw("sag_freeze_residual_nm", &RtLoopConfig::sag_freeze_residual_nm)
+        .def_rw("sag_vel_eps", &RtLoopConfig::sag_vel_eps)
+        .def_rw("sag_leak", &RtLoopConfig::sag_leak)
+        .def_rw("dither_enable", &RtLoopConfig::dither_enable)
+        .def_rw("dither_hz", &RtLoopConfig::dither_hz)
+        .def_rw("dither_pos_eps", &RtLoopConfig::dither_pos_eps)
         .def_rw("command_timeout_s", &RtLoopConfig::command_timeout_s)
         .def_rw("overcurrent_threshold", &RtLoopConfig::overcurrent_threshold)
         .def_rw("overspeed_threshold", &RtLoopConfig::overspeed_threshold)
@@ -135,6 +144,24 @@ NB_MODULE(_trlc_dk1_rt, m) {
             [](RtLoopConfig& c, nb::ndarray<nb::numpy, const double, nb::shape<6>> arr) {
                 const double* p = arr.data();
                 for (int i = 0; i < 6; ++i) c.max_pos_delta_per_cycle[static_cast<size_t>(i)] = p[i];
+            })
+        .def_prop_rw("gravity_q_offset",
+            [](const RtLoopConfig& c) {
+                return nb::ndarray<nb::numpy, const double, nb::shape<6>>(
+                    c.gravity_q_offset.data(), {6});
+            },
+            [](RtLoopConfig& c, nb::ndarray<nb::numpy, const double, nb::shape<6>> arr) {
+                const double* p = arr.data();
+                for (int i = 0; i < 6; ++i) c.gravity_q_offset[static_cast<size_t>(i)] = p[i];
+            })
+        .def_prop_rw("dither_amp_nm",
+            [](const RtLoopConfig& c) {
+                return nb::ndarray<nb::numpy, const double, nb::shape<6>>(
+                    c.dither_amp_nm.data(), {6});
+            },
+            [](RtLoopConfig& c, nb::ndarray<nb::numpy, const double, nb::shape<6>> arr) {
+                const double* p = arr.data();
+                for (int i = 0; i < 6; ++i) c.dither_amp_nm[static_cast<size_t>(i)] = p[i];
             });
 
     // JointState
@@ -153,6 +180,12 @@ NB_MODULE(_trlc_dk1_rt, m) {
         })
         .def_prop_ro("t_rotor", [](const JointState& s) {
             return nb::ndarray<nb::numpy, const uint8_t, nb::shape<6>>(s.t_rotor.data(), {6});
+        })
+        .def_prop_ro("sag_residual", [](const JointState& s) {
+            return nb::ndarray<nb::numpy, const double, nb::shape<6>>(s.sag_residual.data(), {6});
+        })
+        .def_prop_ro("sag_bias", [](const JointState& s) {
+            return nb::ndarray<nb::numpy, const double, nb::shape<6>>(s.sag_bias.data(), {6});
         });
 
     // GripperState

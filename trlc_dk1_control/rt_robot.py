@@ -89,6 +89,19 @@ class DK1RobotRT:
         if config.mjcf_path:
             rt_cfg.model_path = str(Path(config.mjcf_path).resolve())
         rt_cfg.gravity_comp_scale = config.gravity_comp_scale
+        rt_cfg.gravity_q_offset = np.asarray(config.gravity_q_offset, dtype=np.float64)
+
+        # FR-018 sag observer + friction dither (default off; see DK1RobotConfig)
+        rt_cfg.sag_observer_enable = config.sag_observer_enable
+        rt_cfg.sag_lambda = config.sag_lambda
+        rt_cfg.sag_max_nm = config.sag_max_nm
+        rt_cfg.sag_freeze_residual_nm = config.sag_freeze_residual_nm
+        rt_cfg.sag_vel_eps = config.sag_vel_eps
+        rt_cfg.sag_leak = config.sag_leak
+        rt_cfg.dither_enable = config.dither_enable
+        rt_cfg.dither_amp_nm = np.asarray(config.dither_amp_nm, dtype=np.float64)
+        rt_cfg.dither_hz = config.dither_hz
+        rt_cfg.dither_pos_eps = config.dither_pos_eps
 
         # Safety
         rt_cfg.command_timeout_s = config.command_timeout_s

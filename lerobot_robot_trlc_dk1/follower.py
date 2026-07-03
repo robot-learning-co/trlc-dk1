@@ -59,6 +59,9 @@ class DK1FollowerConfig(RobotConfig):
     cameras: dict[str, CameraConfig] = field(default_factory=dict)
     # Impedance mode
     gravity_comp_scale: float = 1.0         # full gravity compensation
+    # Extra DK1RobotConfig attributes applied verbatim after construction (setattr) —
+    # e.g. {"gravity_q_offset": [...], "sag_observer_enable": True}. Unknown keys raise.
+    rt_config_overrides: dict = field(default_factory=dict)
     # POS_VEL mode only
     joint_velocity_scaling: float = 0.2
 
@@ -154,6 +157,11 @@ class DK1Follower(Robot):
             cfg.max_gripper_torque_nm = self.config.max_gripper_torque
             cfg.gravity_comp_scale = self.config.gravity_comp_scale
             cfg.disable_torque_on_disconnect = self.config.disable_torque_on_disconnect
+            for k, v in (self.config.rt_config_overrides or {}).items():
+                if not hasattr(cfg, k):
+                    raise AttributeError(f"rt_config_overrides: DK1RobotConfig has no field {k!r}")
+                setattr(cfg, k, np.asarray(v, dtype=np.float64)
+                        if isinstance(getattr(cfg, k), np.ndarray) else v)
             self._robot = DK1RobotRT(cfg)
             self._robot.connect()
         else:

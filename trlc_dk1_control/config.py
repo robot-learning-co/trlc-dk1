@@ -72,6 +72,30 @@ class DK1RobotConfig:
     # Gravity compensation
     mjcf_path: str = _DEFAULT_URDF   # path to MuJoCo XML; empty = gravity comp disabled
     gravity_comp_scale: float = 1.0  # tune empirically
+    # Evaluate the gravity model at q + offset (rad): the motors' hardware zero is not the
+    # model zero (FR-008 calibrated joint offsets). Zeros = old behaviour.
+    gravity_q_offset: np.ndarray = field(default_factory=lambda: np.zeros(6))
+
+    # FR-018 sag observer: at rest the missing feedforward torque is directly observable as
+    # kp*(q_des - q); a gated leaky integrator folds it into tau_ff so the arm settles ON
+    # target instead of tau_err/kp away (open-loop sag was 4-17 mm at the EEF). Adaptation is
+    # gated to near-rest (|vel| < sag_vel_eps) and frozen when the residual is large
+    # (|r| >= sag_freeze_residual_nm = contact/obstruction — integrating there would push).
+    sag_observer_enable: bool = False
+    sag_lambda: float = 0.004            # per-cycle gain (~1 s time constant at 250 Hz)
+    sag_max_nm: float = 2.5              # |bias| clamp per joint (Nm)
+    sag_freeze_residual_nm: float = 3.0  # no adaptation above this residual (contact)
+    sag_vel_eps: float = 0.05            # rad/s: "at rest" gate
+    sag_leak: float = 2e-5               # per-cycle decay (~200 s) so stale bias fades
+
+    # FR-018 friction dither: a joint stuck short of its target inside the static-friction
+    # deadband (|err| > dither_pos_eps, |vel| < sag_vel_eps) gets amp*sin(2*pi*f*t) on tau_ff
+    # to stay in the kinetic regime. Amplitude 0 disables per joint; keep well below
+    # breakaway (~0.3-0.8 Nm arm joints, ~0.3 Nm wrist).
+    dither_enable: bool = False
+    dither_amp_nm: np.ndarray = field(default_factory=lambda: np.zeros(6))
+    dither_hz: float = 25.0
+    dither_pos_eps: float = 0.002        # rad: position error that counts as "stuck"
 
     # Joint velocity limits (rad/s) per joint — operational safety limit
     joint_velocity_limits: np.ndarray = field(

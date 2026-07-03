@@ -172,6 +172,8 @@ JointState RtControlLoop::get_joint_state() const {
             result.torque[static_cast<size_t>(i)] = state_buf_.torque[static_cast<size_t>(i)];
             result.t_mos[static_cast<size_t>(i)]   = state_buf_.t_mos[static_cast<size_t>(i)];
             result.t_rotor[static_cast<size_t>(i)] = state_buf_.t_rotor[static_cast<size_t>(i)];
+            result.sag_residual[static_cast<size_t>(i)] = state_buf_.sag_residual[static_cast<size_t>(i)];
+            result.sag_bias[static_cast<size_t>(i)]     = state_buf_.sag_bias[static_cast<size_t>(i)];
         }
         uint64_t s2 = state_seq_.load(std::memory_order_acquire);
         if (s1 == s2) return result;
@@ -684,6 +686,8 @@ void RtControlLoop::rt_thread_func() {
             state_buf_.torque = cur_torque;
             state_buf_.t_mos = cur_t_mos;
             state_buf_.t_rotor = cur_t_rotor;
+            state_buf_.sag_residual = sag_residual_;   // from the previous cycle's step 8b
+            state_buf_.sag_bias = sag_bias_;
             state_seq_.store(s + 2, std::memory_order_release);
         }
 
@@ -756,6 +760,8 @@ void RtControlLoop::rt_thread_func() {
             for (int i = 0; i < 6; ++i) {
                 slew_target_[static_cast<size_t>(i)] = cur_pos[static_cast<size_t>(i)];
             }
+            // A fault may have been caused by (or corrupted) the learned sag bias — restart clean
+            sag_bias_ = {};
             error_reset_ack_.fetch_add(1, std::memory_order_release);
             std::fprintf(stderr, "[cycle %llu] Error reset acknowledged\n",
                          (unsigned long long)loop_count);
@@ -794,12 +800,53 @@ void RtControlLoop::rt_thread_func() {
             }
         }
 
-        // 8. Gravity compensation
+        // 8. Gravity compensation — evaluated at the MODEL configuration (hardware q +
+        // calibrated zero offset), not the raw encoder reading
         std::array<double, 6> tau_ff = {};
         if (grav_comp_.is_loaded()) {
-            grav_comp_.compute(cur_pos.data(), tau_ff.data());
+            std::array<double, 6> q_model;
+            for (int i = 0; i < 6; ++i) {
+                q_model[static_cast<size_t>(i)] =
+                    cur_pos[static_cast<size_t>(i)] + cfg_.gravity_q_offset[static_cast<size_t>(i)];
+            }
+            grav_comp_.compute(q_model.data(), tau_ff.data());
             for (int i = 0; i < 6; ++i) {
                 tau_ff[static_cast<size_t>(i)] *= cfg_.gravity_comp_scale;
+            }
+        }
+
+        // 8b. FR-018 sag observer + friction dither (see control_loop.h for the contract).
+        // Runs on the pre-safety tau_ff; apply_safety still clamps the sum to the joint
+        // torque limits and zeroes it in damping mode.
+        for (int i = 0; i < 6; ++i) {
+            sag_residual_[static_cast<size_t>(i)] = cfg_.default_kp[static_cast<size_t>(i)] *
+                (slew_target_[static_cast<size_t>(i)] - cur_pos[static_cast<size_t>(i)]);
+        }
+        const bool adapt_ok = !safety_state_.damping_mode && !health_rt_.comm_loss;
+        if (cfg_.sag_observer_enable && adapt_ok) {
+            for (int i = 0; i < 6; ++i) {
+                const size_t j = static_cast<size_t>(i);
+                sag_bias_[j] *= (1.0 - cfg_.sag_leak);
+                if (std::abs(cur_vel[j]) < cfg_.sag_vel_eps &&
+                    std::abs(sag_residual_[j]) < cfg_.sag_freeze_residual_nm) {
+                    sag_bias_[j] = std::clamp(sag_bias_[j] + cfg_.sag_lambda * sag_residual_[j],
+                                              -cfg_.sag_max_nm, cfg_.sag_max_nm);
+                }
+                tau_ff[j] += sag_bias_[j];
+            }
+        }
+        if (cfg_.dither_enable && adapt_ok) {
+            const double s = std::sin(dither_phase_);
+            dither_phase_ += 2.0 * M_PI * cfg_.dither_hz / cfg_.loop_hz;
+            if (dither_phase_ > 2.0 * M_PI) dither_phase_ -= 2.0 * M_PI;
+            for (int i = 0; i < 6; ++i) {
+                const size_t j = static_cast<size_t>(i);
+                // only a joint that is STUCK (error beyond encoder noise, not moving) gets
+                // dithered — a converged or moving joint stays clean
+                if (std::abs(slew_target_[j] - cur_pos[j]) > cfg_.dither_pos_eps &&
+                    std::abs(cur_vel[j]) < cfg_.sag_vel_eps) {
+                    tau_ff[j] += cfg_.dither_amp_nm[j] * s;
+                }
             }
         }
 
