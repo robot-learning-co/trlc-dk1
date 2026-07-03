@@ -787,7 +787,9 @@ void RtControlLoop::rt_thread_func() {
         }
 
         // 7. Slew rate limiting
+        std::array<bool, 6> cmd_moving;   // did this joint's command move this cycle? (for 8b)
         for (int i = 0; i < 6; ++i) {
+            const double before = slew_target_[static_cast<size_t>(i)];
             double max_delta = cfg_.max_pos_delta_per_cycle[static_cast<size_t>(i)];
             if (max_delta > 0.0) {
                 double diff = cmd.q_des[static_cast<size_t>(i)] - slew_target_[static_cast<size_t>(i)];
@@ -798,6 +800,8 @@ void RtControlLoop::rt_thread_func() {
                 // Rate limiting disabled for this joint — pass through
                 slew_target_[static_cast<size_t>(i)] = cmd.q_des[static_cast<size_t>(i)];
             }
+            cmd_moving[static_cast<size_t>(i)] =
+                std::abs(slew_target_[static_cast<size_t>(i)] - before) > 1e-9;
         }
 
         // 8. Gravity compensation — evaluated at the MODEL configuration (hardware q +
@@ -827,7 +831,10 @@ void RtControlLoop::rt_thread_func() {
             for (int i = 0; i < 6; ++i) {
                 const size_t j = static_cast<size_t>(i);
                 sag_bias_[j] *= (1.0 - cfg_.sag_leak);
-                if (std::abs(cur_vel[j]) < cfg_.sag_vel_eps &&
+                // adapt only while HOLDING: a joint stick-slipping through a slow commanded
+                // move has |vel|~0 during every stick phase — adapting there deepens the
+                // sawtooth until the breakaway looks like a contact jump (false guard trips)
+                if (!cmd_moving[j] && std::abs(cur_vel[j]) < cfg_.sag_vel_eps &&
                     std::abs(sag_residual_[j]) < cfg_.sag_freeze_residual_nm) {
                     sag_bias_[j] = std::clamp(sag_bias_[j] + cfg_.sag_lambda * sag_residual_[j],
                                               -cfg_.sag_max_nm, cfg_.sag_max_nm);
@@ -841,9 +848,11 @@ void RtControlLoop::rt_thread_func() {
             if (dither_phase_ > 2.0 * M_PI) dither_phase_ -= 2.0 * M_PI;
             for (int i = 0; i < 6; ++i) {
                 const size_t j = static_cast<size_t>(i);
-                // only a joint that is STUCK (error beyond encoder noise, not moving) gets
-                // dithered — a converged or moving joint stays clean
-                if (std::abs(slew_target_[j] - cur_pos[j]) > cfg_.dither_pos_eps &&
+                // only a joint that is STUCK while HOLDING (error beyond encoder noise, not
+                // moving, command stationary) gets dithered — a converged, moving, or
+                // commanded-through joint stays clean
+                if (!cmd_moving[j] &&
+                    std::abs(slew_target_[j] - cur_pos[j]) > cfg_.dither_pos_eps &&
                     std::abs(cur_vel[j]) < cfg_.sag_vel_eps) {
                     tau_ff[j] += cfg_.dither_amp_nm[j] * s;
                 }
