@@ -32,8 +32,8 @@ logger = logging.getLogger(__name__)
 @dataclass
 class DK1LeaderConfig(TeleoperatorConfig):
     port: str
-    gripper_open_pos: int = 2280
-    gripper_closed_pos: int = 1670
+    gripper_open_pos: int = 2700 # 2280
+    gripper_closed_pos: int = 2245 # 1670
     
     
 class DK1Leader(Teleoperator):
