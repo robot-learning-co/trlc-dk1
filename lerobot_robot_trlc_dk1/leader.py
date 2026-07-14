@@ -27,6 +27,13 @@ from lerobot.motors.dynamixel import (
 
 logger = logging.getLogger(__name__)
 
+_PUSHBACK_JOINTS: dict[str, tuple[float, float]] = {
+    "joint_3": (-np.inf, 2.0),
+    "joint_4": (-1.1,    np.inf),
+}
+_PUSHBACK_STIFFNESS = 100.0  # mA / rad
+_PUSHBACK_MAX_mA    = 100    # hard cap [mA]
+
 
 @TeleoperatorConfig.register_subclass("dk1_leader")
 @dataclass
@@ -34,6 +41,7 @@ class DK1LeaderConfig(TeleoperatorConfig):
     port: str
     gripper_open_pos: int = 2280
     gripper_closed_pos: int = 1670
+    pushback_enabled: bool = True
     
     
 class DK1Leader(Teleoperator):
@@ -94,12 +102,31 @@ class DK1Leader(Teleoperator):
         self.bus.write("Current_Limit", "gripper", 100, normalize=False)
         self.bus.write("Torque_Enable", "gripper", 1, normalize=False)
         self.bus.write("Goal_Position", "gripper", self.config.gripper_open_pos, normalize=False)
-        
+
+        if self.config.pushback_enabled:
+            for joint in _PUSHBACK_JOINTS:
+                self.bus.write("Torque_Enable", joint, 0, normalize=False)
+                self.bus.write("Operating_Mode", joint, OperatingMode.CURRENT.value, normalize=False)
+                self.bus.write("Torque_Enable", joint, 1, normalize=False)
+                self.bus.write("Goal_Current", joint, 0, normalize=False)
+
     def setup_motors(self) -> None:
         for motor in self.bus.motors:
             input(f"Connect the controller board to the '{motor}' motor only and press enter.")
             self.bus.setup_motor(motor)
             print(f"'{motor}' motor id set to {self.bus.motors[motor].id}")
+
+    def _apply_pushback(self, action: dict[str, float]) -> None:
+        currents = {}
+        for joint, (lo, hi) in _PUSHBACK_JOINTS.items():
+            pos_rad = action[f"{joint}.pos"]
+            mA = 0.0
+            if pos_rad < lo:
+                mA =  _PUSHBACK_STIFFNESS * (lo - pos_rad)
+            elif pos_rad > hi:
+                mA = -_PUSHBACK_STIFFNESS * (pos_rad - hi)
+            currents[joint] = int(np.clip(mA, -_PUSHBACK_MAX_mA, _PUSHBACK_MAX_mA))
+        self.bus.sync_write("Goal_Current", currents, normalize=False)
 
     def get_action(self) -> dict[str, float]:
         if not self.is_connected:
@@ -114,6 +141,9 @@ class DK1Leader(Teleoperator):
         gripper_range = self.config.gripper_open_pos - self.config.gripper_closed_pos
         action["gripper.pos"] = 1 - (action["gripper.pos"] - self.config.gripper_closed_pos) / gripper_range
         
+        if self.config.pushback_enabled:
+            self._apply_pushback(action)
+
         dt_ms = (time.perf_counter() - start) * 1e3
         logger.debug(f"{self} read action: {dt_ms:.1f}ms")
         return action
@@ -126,5 +156,7 @@ class DK1Leader(Teleoperator):
         if not self.is_connected:
             raise DeviceNotConnectedError(f"{self} is not connected.")
 
+        if self.config.pushback_enabled:
+            self.bus.sync_write("Goal_Current", {j: 0 for j in _PUSHBACK_JOINTS}, normalize=False)
         self.bus.disconnect()
         logger.info(f"{self} disconnected.")
