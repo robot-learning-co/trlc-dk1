@@ -76,9 +76,16 @@ class BiDK1Follower(Robot):
 
     @property
     def _motors_ft(self) -> dict[str, type]:
-        return {f"left_{motor}.pos": float for motor in self.left_arm.motors} | {
-            f"right_{motor}.pos": float for motor in self.right_arm.motors
+        """Combine the public action feature definitions of both follower arms."""
+        left_features = {
+            f"left_{key}": feature_type
+            for key, feature_type in self.left_arm.action_features.items()
         }
+        right_features = {
+            f"right_{key}": feature_type
+            for key, feature_type in self.right_arm.action_features.items()
+        }
+        return left_features | right_features
 
     @property
     def _cameras_ft(self) -> dict[str, tuple]:
