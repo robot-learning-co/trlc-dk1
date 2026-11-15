@@ -76,8 +76,9 @@ class BiDK1Follower(Robot):
 
     @property
     def _motors_ft(self) -> dict[str, type]:
-        return {f"left_{motor}.pos": float for motor in self.left_arm.motors} | {
-            f"right_{motor}.pos": float for motor in self.right_arm.motors
+        # DK1Follower has no .motors (its _motors only exist after connect), so reuse its feature names
+        return {f"left_{key}": float for key in self.left_arm.action_features} | {
+            f"right_{key}": float for key in self.right_arm.action_features
         }
 
     @property
